@@ -7,23 +7,39 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <div id="mock-mode-banner" class="mode-top-banner" style="display: none;">
+    <strong class="mode-banner-text">Mock preview — not measured</strong>
+  </div>
+
   <header class="top-header">
     <div class="container">
-      <h1>On-Device Crash Test</h1>
-      <p class="subtitle">Crash-test your on-device AI before your customers do.</p>
+      <div class="header-top-row">
+        <div>
+          <h1>On-Device Crash Test</h1>
+          <p class="subtitle">Crash-test your on-device AI before your customers do.</p>
+        </div>
+        <div class="header-badges">
+          <span class="spec-pill">COCO val2017 Scenario Pool (Split A 40 / Split B 40)</span>
+          <span class="spec-pill">Conv-Only INT8 QDQ</span>
+          <span class="spec-pill">Zero Labels / No Training</span>
+        </div>
+      </div>
       <p class="lead-problem">
-        <strong>Problem:</strong> The compressed INT8 detector passed lab validation on bright, static photos and fails silently under couches at night, in window glare, or with steam on the lens.
+        <strong>Problem:</strong> The compressed INT8 detector passed lab validation on bright, static photos and fails silently under couches at night, in window glare, or with fog/steam on the lens.
       </p>
       <p class="lead-repair">
         <strong>What a repair is:</strong> A re-quantization recipe (calibration set, calibration method, per-channel granularity, node exclusions) verified by a zero-regression gate under a hard compression budget. No training, no labels.
       </p>
       <p class="calib-rule">
-        <strong>Baseline recipe:</strong> Quantized the way teams do: calibrated on the 25 brightest, sharpest lab-like images of Split A (MinMax, per-tensor, stretch preprocessing, no exclusions). Every number reported below is measured on held-out Split B (40 images).
+        <strong>Calibration vs. evaluation boundary:</strong> Data pool is 80 COCO val2017 images containing the scenario classes (people included), split into 40 Split-A calibration images and 40 held-out Split-B evaluation images. Baseline INT8 is calibrated on the 25 brightest, sharpest lab-like images of Split A (MinMax, per-tensor, Conv-only QDQ, stretch preprocessing, no exclusions). Calibration only touches Split A and Split-A condition images; every reported metric is measured on held-out Split B (40 images for baseline control and full matrix; requested <code>n_images</code> for live runs).
       </p>
     </div>
   </header>
 
   <main class="container">
+    {% set hero_file = (state.crash_wall.get('file_name') or state.crash_wall.get('image_id') or '000000000139.jpg') if (state.crash_wall is mapping) else '000000000139.jpg' %}
+    {% set hero_man_id = (state.crash_wall.get('manifest_image_id') or 'b_001') if (state.crash_wall is mapping) else 'b_001' %}
+
     <section class="scenario-bar">
       <div class="tabs">
         <a href="/?scenario=robot_vacuum" class="tab {% if scenario.id == 'robot_vacuum' %}active{% endif %}">
@@ -39,135 +55,769 @@
         </span>
         {% endif %}
       </div>
-      <div class="actions">
-        <button id="run-live-btn" class="btn-primary" type="button">Run live (about 2 min)</button>
-        <span id="run-status-badge" class="badge">Phase: {{ state.phase }}</span>
+
+      <div class="live-controls-wrap">
+        <div class="live-controls-label">
+          <strong>Run Live (20 Split-B Photos):</strong> Pick a condition to run live Evaluate → Diagnose → Repair → Re-evaluate → Gate
+        </div>
+        <div class="live-thumb-buttons" id="live-condition-buttons">
+          {% for live_cid, live_label in [('night', 'Night'), ('glare', 'Glare'), ('fog', 'Fog')] %}
+          <button type="button" class="run-cond-btn" data-live-cond="{{ live_cid }}">
+            <img src="/preview/{{ scenario.id }}/{{ live_cid }}/{{ hero_file }}?model=baseline"
+                 alt="{{ live_label }} ({{ hero_file }})"
+                 class="run-cond-btn-thumb" loading="lazy">
+            <span class="run-cond-btn-meta">
+              <span class="run-cond-btn-title">Run {{ live_label }}</span>
+              <span class="run-cond-btn-sub">n=20 · live</span>
+            </span>
+          </button>
+          {% endfor %}
+        </div>
+        <div class="actions-status">
+          <span id="run-status-badge" class="badge">Phase: {{ state.get('phase', 'not yet run') }}</span>
+          <span id="run-id-badge" class="badge badge-subtle">Run: {{ state.get('run_id', 'N/A') }}</span>
+        </div>
       </div>
     </section>
 
-    <section class="strip-panel">
-      <h2>Before → After Summary</h2>
-      {% if state.baseline_control != 'not yet run' %}
-      <div class="metrics-grid">
-        <div class="metric-box">
-          <div class="metric-label">Split B Control F1 (Unedited)</div>
-          <div class="metric-value">
-            {{ state.baseline_control.f1 if state.baseline_control.f1 is not none else 'N/A' }}
-            {% if state.final_control != 'not yet run' %}
-              → {{ state.final_control.f1 if state.final_control.f1 is not none else 'N/A' }}
-            {% endif %}
+    <div id="alert-banners">
+      {% if state.get('error') %}
+      <div class="banner banner-error">
+        <strong>Run Error:</strong> <span id="error-text">{{ state.get('error') }}</span>
+      </div>
+      {% endif %}
+      {% if state.get('needs_human') or state.get('phase') == 'needs_human' %}
+      <div class="banner banner-human">
+        <div class="banner-human-content">
+          <strong>Needs Human Review:</strong> Unresolved condition(s) or unverified claims require human engineering sign-off. Nothing ships automatically.
+          {% if state.get('human_decision') %}
+          <span class="badge">Recorded decision: {{ state.get('human_decision') }}</span>
+          {% endif %}
+        </div>
+        <div class="banner-human-actions">
+          <button type="button" class="btn-secondary" data-human-decision="approved">Approve Recipe</button>
+          <button type="button" class="btn-secondary" data-human-decision="rejected">Reject Recipe</button>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {% set b_ctrl = state.get('baseline_control') if (state.get('baseline_control') is mapping) else None %}
+    {% set f_ctrl = state.get('final_control') if (state.get('final_control') is mapping) else None %}
+    {% set ctrl_f1 = b_ctrl.get('f1') if (b_ctrl and b_ctrl.get('f1') is number) else None %}
+    {% set ctrl_raw_f1 = b_ctrl.get('raw_f1') if (b_ctrl and b_ctrl.get('raw_f1') is number) else ctrl_f1 %}
+    {% set final_ctrl_f1 = f_ctrl.get('f1') if (f_ctrl and f_ctrl.get('f1') is number) else None %}
+    {% set pass_thresh = state.get('pass_threshold') if (state.get('pass_threshold') is number) else None %}
+    {% set pass_thresh_raw = state.get('pass_threshold_raw') if (state.get('pass_threshold_raw') is number) else pass_thresh %}
+    {% set sanity_thresh = state.get('control_sanity_threshold') if (state.get('control_sanity_threshold') is number) else 0.80 %}
+    {% set ctrl_sanity_ok = (ctrl_raw_f1 is not none and ctrl_raw_f1 >= sanity_thresh and b_ctrl.get('passed', True) is not sameas false) %}
+
+    <!-- HERO CRASH WALL: 1 Original Split-B Photo + 7 Conditions (8 total) -->
+    <section class="crash-wall-section" id="crash-wall-section">
+      <div class="section-header-row">
+        <div>
+          <h2>The Crash Wall — Held-Out Split B Visual Comparison (1 Original + 7 Conditions)</h2>
+          <p class="section-desc">
+            Every column shows the <strong>exact same Split-B photo</strong>
+            (<code id="crash-wall-image-id">{{ hero_file }} ({{ hero_man_id }})</code>).
+            Condition pass threshold fixed at run start:
+            <strong>F1 &ge; <span id="cw-pass-threshold">{{ '%.4f'|format(pass_thresh) if pass_thresh is not none else 'N/A' }}</span></strong>
+            (Baseline Control F1 <span id="cw-control-f1">{{ '%.4f'|format(ctrl_f1) if ctrl_f1 is not none else 'N/A' }}</span> &minus; 0.05) |
+            Control sanity bar: <strong>&ge; <span id="cw-sanity-threshold">{{ '%.2f'|format(sanity_thresh) }}</span></strong>.
+          </p>
+        </div>
+        <div class="box-legend">
+          <span class="legend-item"><span class="legend-swatch swatch-fp32"></span> FP32 Reference (Persisted)</span>
+          <span class="legend-item"><span class="legend-swatch swatch-int8"></span> INT8 Prediction</span>
+        </div>
+      </div>
+
+      <div class="crash-wall-grid" id="crash-wall-grid">
+        {% if state.get('crash_wall') is mapping and state.crash_wall.get('tiles') %}
+          {% for tile in state.crash_wall.get('tiles', []) %}
+          <div class="cw-tile {% if tile.get('is_original') %}cw-tile-original{% endif %}" data-tile-id="{{ tile.get('id', '') }}">
+            <div class="cw-tile-header">
+              <span class="cw-tile-title">{{ tile.get('name', '') }}</span>
+              <code class="cw-tile-code">{{ tile.get('manifest_image_id') or tile.get('image_id', '') }}</code>
+            </div>
+            <div class="cw-thumb-wrap">
+              {% if tile.get('available') and tile.get('thumb_url') and tile.get('valid', True) is not sameas false %}
+              <img src="{{ tile.get('thumb_url') }}" alt="{{ tile.get('name', '') }} ({{ tile.get('image_id', '') }})" class="cw-thumb-img" loading="lazy">
+              {% else %}
+              <div class="cw-thumb-pending">
+                <div class="cw-pending-id">{{ tile.get('image_id', 'N/A') }}</div>
+                <div class="cw-pending-text">{% if tile.get('valid') is sameas false %}invalid condition output{% else %}evaluation pending{% endif %}</div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="cw-tile-footer">
+              <div class="cw-box-counts">
+                {% if tile.get('fp32_boxes') is number or tile.get('int8_boxes') is number %}
+                  FP32 {{ tile.get('fp32_boxes') if tile.get('fp32_boxes') is number else 'N/A' }} |
+                  INT8 {{ tile.get('int8_boxes') if tile.get('int8_boxes') is number else 'N/A' }}
+                  {% if tile.get('missed') is number %}| missed {{ tile.get('missed') }}{% endif %}
+                {% else %}
+                  Boxes: N/A
+                {% endif %}
+              </div>
+              {% if tile.get('generator_label') %}
+              <div class="cw-gen-line">{{ tile.get('generator_label') }}</div>
+              {% endif %}
+              <div class="cw-metric-line">
+                {% if tile.get('is_original') %}
+                  {% set tf1 = tile.get('f1') if tile.get('f1') is number else None %}
+                  {% set traw = tile.get('raw_f1') if tile.get('raw_f1') is number else tf1 %}
+                  {% if tf1 is not none %}
+                    {% set orig_ok = (traw is not none and traw >= sanity_thresh and tile.get('passed', True) is not sameas false) %}
+                    <span class="status-pill {% if orig_ok %}status-pass{% else %}status-fail{% endif %}">
+                      Control F1 {{ '%.4f'|format(tf1) }} ({{ 'PASS' if orig_ok else 'BELOW SANITY' }})
+                    </span>
+                  {% else %}
+                    <span class="status-pill status-pending">evaluation pending</span>
+                  {% endif %}
+                {% else %}
+                  {% set tb_f1 = tile.get('baseline_f1') if tile.get('baseline_f1') is number else None %}
+                  {% set tf_f1 = tile.get('final_f1') if tile.get('final_f1') is number else None %}
+                  {% set t_active = tf_f1 if tf_f1 is not none else tb_f1 %}
+                  {% if t_active is not none %}
+                    {% set t_pass = tile.get('passed') if (tile.get('passed') is boolean) else (pass_thresh_raw is not none and t_active >= pass_thresh_raw) %}
+                    <span class="status-pill {% if t_pass %}status-pass{% else %}status-fail{% endif %}">
+                      F1 {{ '%.4f'|format(tb_f1) if tb_f1 is not none else 'N/A' }}{% if tf_f1 is not none %} → {{ '%.4f'|format(tf_f1) }}{% endif %} ({{ 'PASS' if t_pass else 'FAIL' }})
+                    </span>
+                  {% else %}
+                    <span class="status-pill status-pending">evaluation pending</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
           </div>
-          <div class="metric-note">
-            Reference objects |R|: {{ state.baseline_control.ref_objects }} ({{ state.n_images }} images)
+          {% endfor %}
+        {% else %}
+          <p class="empty-notice">Split B crash wall: <strong>evaluation pending</strong></p>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- BEFORE -> AFTER SUMMARY STRIP -->
+    <section class="strip-panel" id="summary-strip-section">
+      <div class="section-header-row">
+        <h2>Before → After Summary</h2>
+        <span id="summary-headline" class="summary-headline">
+          {% if b_ctrl and ctrl_f1 is not none %}
+            Control F1 {{ '%.4f'|format(ctrl_f1) }}{% if final_ctrl_f1 is not none %} → {{ '%.4f'|format(final_ctrl_f1) }}{% endif %}
+            | Pass threshold fixed at {{ '%.4f'|format(pass_thresh) if pass_thresh is not none else 'N/A' }} (Control F1 &minus; 0.05)
+          {% else %}
+            Baseline control metrics: not yet run
+          {% endif %}
+        </span>
+      </div>
+
+      {% if b_ctrl %}
+      <div class="metrics-grid" id="summary-metrics-grid">
+        <div class="metric-box">
+          <div class="metric-label">Split B Control F1 (Unedited Clean Images)</div>
+          <div class="metric-value {% if ctrl_f1 is not none and not ctrl_sanity_ok %}text-fail{% elif ctrl_f1 is not none %}text-pass{% endif %}" id="metric-control-f1">
+            {{ '%.4f'|format(ctrl_f1) if ctrl_f1 is not none else 'N/A' }}{% if final_ctrl_f1 is not none %} → {{ '%.4f'|format(final_ctrl_f1) }}{% endif %}
+          </div>
+          <div class="metric-note" id="metric-control-note">
+            Reference objects |R|: {{ b_ctrl.get('ref_objects') if b_ctrl.get('ref_objects') is number else 'N/A' }}
+            ({{ b_ctrl.get('n_images', 40) }} Split-B images) | Sanity bar &ge; {{ '%.2f'|format(sanity_thresh) }}
+            ({% if ctrl_f1 is none %}N/A{% elif ctrl_sanity_ok %}PASS{% else %}FAIL{% endif %})
           </div>
         </div>
+
         <div class="metric-box">
-          <div class="metric-label">Baseline INT8 Size / Latency</div>
-          <div class="metric-value">
-            {{ (state.baseline_int8.size_bytes / 1048576) | round(2) }} MB / {{ state.baseline_int8.median_ms }} ms
-          </div>
-          <div class="metric-note">
-            Quantized ops: {{ state.baseline_int8.quantized_ops }} / {{ state.baseline_int8.total_ops }}
-            ({{ (state.baseline_int8.quantized_op_ratio * 100) | round(1) }}%)
-          </div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">FP32 Parent Size / Latency</div>
-          <div class="metric-value">
-            {{ (state.fp32.size_bytes / 1048576) | round(2) }} MB / {{ state.fp32.median_ms }} ms
-          </div>
-          <div class="metric-note">
-            INT8 vs FP32 ratios: {{ state.budget_reference.size_ratio_vs_fp32 }}x size, {{ state.budget_reference.ms_ratio_vs_fp32 }}x latency
-          </div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">Condition Matrix Status</div>
-          <div class="metric-value">
-            {% if state.conditions %}
-              Measured ({{ state.conditions | length }} conditions)
+          <div class="metric-label">Fixed Condition Pass Threshold</div>
+          <div class="metric-value" id="metric-pass-threshold">
+            {% if pass_thresh is not none %}
+              F1 &ge; {{ '%.4f'|format(pass_thresh) }}
             {% else %}
-              not yet run
+              N/A
             {% endif %}
           </div>
-          <div class="metric-note">Pass threshold: F1 &ge; 0.90</div>
+          <div class="metric-note" id="metric-matrix-summary">
+            Rule: Baseline Control F1 ({{ '%.4f'|format(ctrl_f1) if ctrl_f1 is not none else 'N/A' }}) &minus; 0.05.
+            {% if state.get('conditions') %}
+              Measured {{ state.get('conditions') | length }} / {{ scenario.get('conditions', []) | length }} conditions (run scope: {{ state.get('n_images', 'N/A') }} images).
+            {% else %}
+              Condition matrix evaluation pending ({{ scenario.get('conditions', []) | length }} conditions).
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="metric-box">
+          <div class="metric-label">Baseline INT8 Size / CPU Latency</div>
+          <div class="metric-value" id="metric-int8-size">
+            {% set bint8 = state.get('baseline_int8') if (state.get('baseline_int8') is mapping) else None %}
+            {% if bint8 and bint8.get('size_bytes') is number %}
+              {{ (bint8.get('size_bytes') / 1048576) | round(2) }} MB / {{ bint8.get('median_ms', 'N/A') }} ms
+            {% else %}
+              N/A
+            {% endif %}
+          </div>
+          <div class="metric-note" id="metric-int8-ops">
+            {% if bint8 and bint8.get('quantized_ops') is number and bint8.get('total_ops') is number %}
+              Quantized Conv ops: {{ bint8.get('quantized_ops') }} / {{ bint8.get('total_ops') }}
+              ({{ ((bint8.get('quantized_op_ratio', 0) * 100) | round(1)) }}%)
+            {% else %}
+              N/A
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="metric-box">
+          <div class="metric-label">FP32 Parent &amp; Compression Budget</div>
+          <div class="metric-value" id="metric-fp32-size">
+            {% set fp32_info = state.get('fp32') if (state.get('fp32') is mapping) else None %}
+            {% if fp32_info and fp32_info.get('size_bytes') is number %}
+              {{ (fp32_info.get('size_bytes') / 1048576) | round(2) }} MB / {{ fp32_info.get('median_ms', 'N/A') }} ms
+            {% else %}
+              N/A
+            {% endif %}
+          </div>
+          <div class="metric-note" id="metric-budget-note">
+            {% set bref = state.get('budget_reference') if (state.get('budget_reference') is mapping) else None %}
+            {% if bref %}
+              Measured vs FP32 on x86 CPU: {{ bref.get('size_ratio_vs_fp32', 'N/A') }}x size, {{ bref.get('ms_ratio_vs_fp32', 'N/A') }}x latency.
+              Gates vs baseline INT8: size &le; 1.10x, ms &le; 1.10x, ops &ge; 0.90x.
+            {% else %}
+              Budget gates: size &le; 1.10x, latency &le; 1.10x, quantized ops &ge; 0.90x vs baseline INT8.
+            {% endif %}
+          </div>
         </div>
       </div>
       {% else %}
-      <p class="empty-notice">Baseline control metrics: <strong>not yet run</strong></p>
+      <p class="empty-notice" id="summary-empty-notice">Baseline control metrics: <strong>not yet run</strong></p>
       {% endif %}
     </section>
 
-    <section class="conditions-section">
-      <h2>Crash-Test Conditions ({{ scenario.name }})</h2>
-      <p class="section-desc">{{ scenario.description }}</p>
-      <div class="cards-grid">
-        {% for cond in scenario.conditions %}
-        {% set cstate = state.conditions.get(cond.id) if state.conditions else None %}
-        <div class="cond-card">
-          <div class="cond-header">
-            <h3>{{ cond.name }} (<code>{{ cond.id }}</code>)</h3>
-            {% if cstate %}
-              <span class="badge">{{ cstate.status }}</span>
-            {% else %}
-              <span class="badge">not yet run</span>
-            {% endif %}
-          </div>
-          <p class="cond-reason"><strong>Why this condition:</strong> {{ cond.reason }}</p>
-          <p class="cond-meta">
-            Generator: <code>{{ cond.generator }}</code> | Fallback: <code>{{ cond.fallback }}</code> |
-            Fixed severity: <code>{{ cond.severity }}</code>
+    <!-- LIVE PROCESS VIEW: STEPPER, PIPELINE SCHEMATIC, FILMSTRIP, DIAGNOSIS & GATE -->
+    <section class="live-process-section" id="live-process-section">
+      <div class="section-header-row">
+        <div>
+          <h2>Live Process View — Evaluate → Diagnose → Repair → Re-evaluate → Gate</h2>
+          <p class="section-desc">
+            Polled every 2 seconds from <code>/state</code>. Nothing moves unless a real event arrives from <code>/state</code>.
           </p>
-          {% if cstate %}
-          <p class="cond-f1">
-            Baseline F1: <strong>{{ cstate.baseline_f1 }}</strong> &rarr;
-            Final F1: <strong>{{ cstate.final_f1 }}</strong>
-            (|R| = {{ cstate.ref_objects }})
-          </p>
+        </div>
+        {% set prog = state.get('progress') if (state.get('progress') is mapping) else None %}
+        {% set pstep = prog.get('step') if (prog and prog.get('step') is mapping) else None %}
+        <div id="live-step-counter" class="step-counter-badge">
+          {% if pstep and pstep.get('label') %}
+            {{ pstep.get('label') }} ({{ pstep.get('done') if pstep.get('done') is number else 'N/A' }}/{{ pstep.get('total') if pstep.get('total') is number else 'N/A' }})
           {% else %}
-          <p class="cond-f1">Split B condition evaluation: <strong>not yet run</strong></p>
+            Phase: {{ state.get('phase', 'not yet run') }}
           {% endif %}
         </div>
+      </div>
+
+      <!-- 5-Step Stepper with Left-to-Right Progress Connector Lines -->
+      <div class="stepper-bar" id="phase-stepper">
+        <div class="stepper-item" data-step-phase="evaluating">
+          <div class="stepper-title">1. Evaluate</div>
+          <div class="stepper-time" data-step-timer="evaluating">—</div>
+        </div>
+        <div class="stepper-connector"><div class="stepper-connector-fill"></div></div>
+        <div class="stepper-item" data-step-phase="diagnosing">
+          <div class="stepper-title">2. Diagnose (Argon)</div>
+          <div class="stepper-time" data-step-timer="diagnosing">—</div>
+        </div>
+        <div class="stepper-connector"><div class="stepper-connector-fill"></div></div>
+        <div class="stepper-item" data-step-phase="repairing">
+          <div class="stepper-title">3. Repair (Re-quantize)</div>
+          <div class="stepper-time" data-step-timer="repairing">—</div>
+        </div>
+        <div class="stepper-connector"><div class="stepper-connector-fill"></div></div>
+        <div class="stepper-item" data-step-phase="re-evaluating">
+          <div class="stepper-title">4. Re-evaluate</div>
+          <div class="stepper-time" data-step-timer="re-evaluating">—</div>
+        </div>
+        <div class="stepper-connector"><div class="stepper-connector-fill"></div></div>
+        <div class="stepper-item" data-step-phase="gate">
+          <div class="stepper-title">5. Zero-Regression Gate</div>
+          <div class="stepper-time" data-step-timer="gate">—</div>
+        </div>
+      </div>
+
+      <!-- PRIORITY 1: PIPELINE SCHEMATIC ABOVE THE FILMSTRIP -->
+      <div class="pipeline-schematic" id="pipeline-schematic">
+        <div class="pipeline-main-row" id="pipeline-main-row">
+          <div class="pipeline-node" data-pipe-idx="0">
+            <div class="pipe-node-title">Condition photo</div>
+            <div class="pipe-node-sub">Split B input</div>
+          </div>
+          <div class="pipeline-line">→</div>
+          <div class="pipeline-node" data-pipe-idx="1">
+            <div class="pipe-node-title">FP32 reference</div>
+            <div class="pipe-node-sub">Persisted oracle R</div>
+          </div>
+          <div class="pipeline-line">→</div>
+          <div class="pipeline-node" data-pipe-idx="2">
+            <div class="pipe-node-title">INT8 under test</div>
+            <div class="pipe-node-sub">Conv QDQ detector</div>
+            <div class="pipe-repair-chips" id="pipeline-repair-chips"></div>
+            <div class="pipe-repair-bar" id="pipeline-repair-bar" style="display: none;">
+              <div class="pipe-repair-bar-inner"></div>
+            </div>
+          </div>
+          <div class="pipeline-line">→</div>
+          <div class="pipeline-node" data-pipe-idx="3">
+            <div class="pipe-node-title">Compare</div>
+            <div class="pipe-node-sub">Greedy IoU &ge; 0.5</div>
+          </div>
+          <div class="pipeline-line">→</div>
+          <div class="pipeline-node" data-pipe-idx="4">
+            <div class="pipe-node-title">Verdict</div>
+            <div class="pipe-node-sub">F1 vs threshold</div>
+          </div>
+
+          <!-- Small sliding photo token driven strictly by real arrived /state events -->
+          <div class="pipeline-photo-token" id="pipeline-photo-token" style="display: none;">
+            <img id="pipeline-token-img" src="" alt="Current evaluated Split-B photo" class="pipeline-token-img">
+            <span id="pipeline-token-label" class="pipeline-token-label"></span>
+          </div>
+        </div>
+
+        <!-- 6th Box: Gemini 4 Argon (lights up during Diagnose while main row dims) -->
+        <div class="pipeline-argon-row">
+          <div class="pipeline-node pipeline-node-argon" id="pipeline-node-argon">
+            <div class="pipe-node-title">6. Gemini 4 Argon (Multimodal Diagnosis &amp; Recipe Selection)</div>
+            <div class="pipe-node-sub">
+              Chained via <code>previous_interaction_id</code> | Live elapsed: <strong id="pipeline-argon-timer">—</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Per-Image Filmstrip (progress.recent, up to 8 newest first) -->
+      <div class="filmstrip-block">
+        <div class="subblock-header">
+          <h3>Per-Image Evaluation Filmstrip (Newest First, up to 8)</h3>
+          <span class="subblock-note" id="filmstrip-phase-note">
+            Real overlay thumbnails from progress.recent (indoor Split-B photos prioritized first)
+          </span>
+        </div>
+        <div class="filmstrip-row" id="recent-filmstrip">
+          {% if prog and prog.get('recent') %}
+            {% for item in prog.get('recent', [])[:8] %}
+            <div class="film-card" data-image-id="{{ item.get('image_id', '') }}" data-condition="{{ item.get('condition', '') }}">
+              <div class="film-card-top">
+                <code>{{ item.get('condition', '') }}</code>
+                <code>{{ item.get('image_id', '') }}</code>
+              </div>
+              <div class="film-thumb-wrap">
+                {% if item.get('thumb_url') %}
+                <img src="{{ item.get('thumb_url') }}" alt="{{ item.get('condition', '') }} {{ item.get('image_id', '') }}" class="film-thumb-img">
+                {% else %}
+                <div class="film-thumb-na">No overlay URL</div>
+                {% endif %}
+              </div>
+              <div class="film-counts">
+                FP32 {{ item.get('fp32_boxes') if item.get('fp32_boxes') is number else 'N/A' }} |
+                INT8 {{ item.get('int8_boxes') if item.get('int8_boxes') is number else 'N/A' }} |
+                missed {{ item.get('missed') if item.get('missed') is number else 'N/A' }}
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="filmstrip-empty">Per-image evaluation filmstrip: waiting for evaluated Split-B images.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Live Diagnosis + Action + Gate Panel -->
+      <div class="live-diag-gate-grid">
+        <div class="live-diag-box">
+          <h3>Gemini 4 Argon Multimodal Diagnosis Status</h3>
+          {% set ar = prog.get('argon') if (prog and prog.get('argon') is mapping) else None %}
+          <div class="argon-flow-bar" id="argon-status-bar">
+            <span class="argon-step {% if ar and ar.get('status') == 'sending' %}active{% endif %}" id="argon-step-sending">
+              1. Sending images: <strong>{{ ar.get('images_sent') if (ar and ar.get('images_sent') is number) else 'N/A' }}</strong>
+            </span>
+            <span>→</span>
+            <span class="argon-step {% if ar and ar.get('status') == 'thinking' %}active{% endif %}" id="argon-step-thinking">
+              2. Argon thinking: <strong id="argon-thinking-timer">N/A</strong>
+            </span>
+            <span>→</span>
+            <span class="argon-step {% if ar and ar.get('status') == 'received' %}active{% endif %}" id="argon-step-received">
+              3. Response: <strong>{{ ar.get('status') if (ar and ar.get('status')) else 'pending' }}</strong>
+            </span>
+          </div>
+          <div class="argon-tokens-line" id="argon-live-tokens">
+            Measured Input Tokens: <strong>{{ ar.get('input_tokens') if (ar and ar.get('input_tokens') is number) else 'N/A' }}</strong> |
+            Measured Output Tokens: <strong>{{ ar.get('output_tokens') if (ar and ar.get('output_tokens') is number) else 'N/A' }}</strong>
+          </div>
+          <div class="verbatim-diagnosis-box" id="live-diagnosis-verbatim">Diagnosis text pending Argon response.</div>
+        </div>
+
+        <div class="live-gate-box">
+          <h3>Chosen Repair Action &amp; Zero-Regression Gate</h3>
+          {% set pact = prog.get('action') if (prog and prog.get('action') is mapping) else None %}
+          <div class="action-chips-row" id="live-action-row">
+            {% if pact and pact.get('type') %}
+              <span class="action-type-badge">Action: {{ pact.get('type') }}</span>
+              {% for chip in pact.get('params_chips', []) %}
+                <span class="param-chip">{{ chip }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="muted-label">Repair action: pending diagnosis</span>
+            {% endif %}
+          </div>
+
+          <div id="live-gate-banner-wrap">
+            {% set gt = prog.get('gate') if (prog and prog.get('gate') is mapping) else None %}
+            {% if gt and gt.get('verdict') %}
+              <div class="gate-banner {% if 'ACCEPTED' in (gt.get('verdict')|upper) %}gate-accepted{% else %}gate-rejected{% endif %}">
+                <div class="gate-verdict-title">Gate Verdict: {{ gt.get('verdict') }}</div>
+                <div class="gate-verdict-details">
+                  Control F1 delta: {{ gt.get('control_delta') if gt.get('control_delta') is number else 'N/A' }}
+                  {% set br = gt.get('budget_ratios') if (gt.get('budget_ratios') is mapping) else None %}
+                  {% if br %}
+                    | Size vs baseline: {{ br.get('size_ratio_vs_baseline', 'N/A') }}x
+                    | Latency vs baseline: {{ br.get('ms_ratio_vs_baseline', 'N/A') }}x
+                    | Quantized ops: {{ br.get('ops_ratio_vs_baseline', 'N/A') }}x
+                  {% endif %}
+                  {% if gt.get('reasons') %}
+                    | Reasons: {{ gt.get('reasons') | join(', ') }}
+                  {% endif %}
+                </div>
+              </div>
+            {% else %}
+              <div class="gate-banner gate-neutral">
+                Gate verdict: pending evaluation against control drop (&le; 0.02), passing conditions, and compression budget.
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="rejected-history-block" id="rejected-history-block">
+            <h4>Rejected Attempt History</h4>
+            <div id="rejected-history-list" class="rejected-history-list">
+              <span class="muted-label">No rejected repair attempts recorded in this run.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CRASH-TEST CONDITION CARDS -->
+    <section class="conditions-section" id="conditions-section">
+      <div class="section-header-row">
+        <div>
+          <h2>Crash-Test Condition Cards ({{ scenario.get('name', scenario.get('id', 'Scenario')) }})</h2>
+          <p class="section-desc">
+            {{ scenario.get('description', '') }}
+            <strong>Note on separation of causes:</strong> The persisted-object oracle separates compression failures (where INT8 drops below threshold on objects FP32 still detects, e.g., fog) from informational model limitations (where FP32 retention itself drops &lt; 0.70). Compression pass/fail applies to every condition.
+          </p>
+        </div>
+        <div class="threshold-callout">
+          Pass Threshold Fixed at Run Start:
+          <strong>F1 &ge; <span id="cards-pass-threshold">{{ '%.4f'|format(pass_thresh) if pass_thresh is not none else 'N/A' }}</span></strong>
+          (Baseline Control F1 <span id="cards-control-f1">{{ '%.4f'|format(ctrl_f1) if ctrl_f1 is not none else 'N/A' }}</span> &minus; 0.05) |
+          Control Sanity Bar: <strong>&ge; <span id="cards-sanity-threshold">{{ '%.2f'|format(sanity_thresh) }}</span></strong>
+        </div>
+      </div>
+
+      <div class="cards-grid" id="conditions-cards-grid">
+        {% set conds_map = state.get('conditions') if (state.get('conditions') is mapping) else {} %}
+        {% set msum_map = state.get('manifest_summary') if (state.get('manifest_summary') is mapping) else {} %}
+        {% set cw_tiles = state.crash_wall.get('tiles', []) if (state.get('crash_wall') is mapping) else [] %}
+
+        {% for cond in scenario.get('conditions', []) %}
+        {% set cid = cond.get('id', '') %}
+        {% set cstate = conds_map.get(cid) if (conds_map.get(cid) is mapping) else {} %}
+        {% set msum = msum_map.get(cid) if (msum_map.get(cid) is mapping) else {} %}
+        {% set cw_tile = (cw_tiles | selectattr('id', 'equalto', cid) | first) if cw_tiles else None %}
+        {% set bm = cstate.get('baseline_metrics') if (cstate.get('baseline_metrics') is mapping) else {} %}
+        {% set fm = cstate.get('final_metrics') if (cstate.get('final_metrics') is mapping) else {} %}
+
+        {% set b_f1 = cstate.get('baseline_f1') if (cstate.get('baseline_f1') is number) else (bm.get('f1') if bm.get('f1') is number else (cstate.get('f1') if cstate.get('f1') is number else None)) %}
+        {% set f_f1 = cstate.get('final_f1') if (cstate.get('final_f1') is number) else (fm.get('f1') if fm.get('f1') is number else None) %}
+        {% set b_raw = cstate.get('baseline_raw_f1') if (cstate.get('baseline_raw_f1') is number) else (bm.get('raw_f1') if bm.get('raw_f1') is number else (cstate.get('raw_f1') if cstate.get('raw_f1') is number else b_f1)) %}
+        {% set f_raw = cstate.get('final_raw_f1') if (cstate.get('final_raw_f1') is number) else (fm.get('raw_f1') if fm.get('raw_f1') is number else f_f1) %}
+
+        {% set has_measured = (b_f1 is not none) or (f_f1 is not none) %}
+        {% set active_raw = f_raw if f_raw is not none else b_raw %}
+        {% set card_thresh = cstate.get('pass_threshold') if (cstate.get('pass_threshold') is number) else pass_thresh %}
+        {% set card_thresh_raw = cstate.get('pass_threshold_raw') if (cstate.get('pass_threshold_raw') is number) else pass_thresh_raw %}
+
+        {% set is_pass = (cstate.get('passed') if (cstate.get('passed') is boolean and f_raw is none) else (active_raw is not none and card_thresh_raw is not none and active_raw >= card_thresh_raw)) %}
+        {% set is_limitation = (cstate.get('limitation') is sameas true) or (bm.get('limitation') is sameas true) or (fm.get('limitation') is sameas true) %}
+
+        {% set active_m = fm if fm else (bm if bm else cstate) %}
+        {% set ref_objs = cstate.get('ref_objects') if (cstate.get('ref_objects') is number) else (active_m.get('ref_objects') if active_m.get('ref_objects') is number else None) %}
+        {% set tp_val = active_m.get('tp') if active_m.get('tp') is number else None %}
+        {% set fp_val = active_m.get('fp') if active_m.get('fp') is number else None %}
+        {% set fn_val = active_m.get('fn') if active_m.get('fn') is number else None %}
+        {% set n_imgs_val = active_m.get('n_images') if active_m.get('n_images') is number else None %}
+        {% set valid_imgs_val = active_m.get('valid_images') if active_m.get('valid_images') is number else None %}
+        {% set ret_val = active_m.get('retention') if active_m.get('retention') is number else (msum.get('retention_b') if msum.get('retention_b') is number else None) %}
+        {% set actual_gen_label = cstate.get('generator_summary') or msum.get('generator_label') or 'pending manifest' %}
+
+        <article class="cond-card {% if has_measured %}{% if is_pass %}card-pass{% else %}card-fail{% endif %}{% else %}card-pending{% endif %}"
+                 data-cond-id="{{ cid }}">
+          <div class="cond-header">
+            <div>
+              <h3>{{ cond.get('name', cid) }} <code class="cond-code">{{ cid }}</code></h3>
+            </div>
+            <div class="cond-badges">
+              {% if has_measured %}
+                <span class="badge {% if is_pass %}badge-pass{% else %}badge-fail{% endif %}">
+                  {{ 'PASS' if is_pass else 'FAIL' }}
+                </span>
+                {% if is_limitation %}
+                <span class="badge badge-limitation">model limitation: FP32 also degrades</span>
+                {% endif %}
+              {% else %}
+                <span class="badge badge-pending">evaluation pending</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="card-dynamic-slot">
+            {% if has_measured %}
+            <div class="card-hero-metrics">
+              <div class="hero-f1-value {% if is_pass %}text-pass{% else %}text-fail{% endif %}">
+                {{ '%.4f'|format(b_f1) if b_f1 is not none else 'N/A' }} → {{ '%.4f'|format(f_f1) if f_f1 is not none else 'N/A' }}
+              </div>
+              <div class="hero-object-counts">
+                <div class="obj-count-main">
+                  |R| = {{ ref_objs if ref_objs is not none else 'N/A' }} ref objects{% if valid_imgs_val is not none and n_imgs_val is not none %} ({{ valid_imgs_val }}/{{ n_imgs_val }} valid Split-B imgs){% elif n_imgs_val is not none %} ({{ n_imgs_val }} Split-B imgs){% endif %}
+                </div>
+                <div class="obj-count-sub">
+                  TP {{ tp_val if tp_val is not none else 'N/A' }} |
+                  FP {{ fp_val if fp_val is not none else 'N/A' }} |
+                  FN {{ fn_val if fn_val is not none else 'N/A' }}
+                </div>
+              </div>
+            </div>
+            {% else %}
+            <div class="card-pending-visual">
+              {% if cw_tile and cw_tile.get('available') and cw_tile.get('thumb_url') %}
+                <img src="{{ cw_tile.get('thumb_url') }}" alt="{{ cond.get('name', cid) }} preview" class="card-pending-thumb" loading="lazy">
+              {% else %}
+                <div class="card-pending-SplitB-box">
+                  <img src="/preview/{{ scenario.id }}/original/{{ hero_file }}?model=baseline"
+                       alt="Split B reference ({{ hero_file }})"
+                       class="card-pending-thumb card-thumb-ref" loading="lazy">
+                  <span class="card-thumb-caption">Split B ref ({{ hero_file }}) — evaluation pending</span>
+                </div>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="card-threshold-line">
+            Pass threshold: <strong>&ge; {{ '%.4f'|format(card_thresh) if card_thresh is not none else 'N/A' }}</strong>
+            (Control F1 {{ '%.4f'|format(ctrl_f1) if ctrl_f1 is not none else 'N/A' }} &minus; 0.05) |
+            Control sanity: <strong>&ge; {{ '%.2f'|format(sanity_thresh) }}</strong>
+          </div>
+
+          <p class="cond-reason"><strong>Why this condition:</strong> {{ cond.get('reason', '') }}</p>
+
+          <div class="severity-chips-wrap">
+            <span class="chips-label">Fixed severity:</span>
+            {% if cond.get('severity') is mapping %}
+              {% for skey, sval in cond.get('severity').items() %}
+              <span class="severity-chip">{{ skey | replace('_', ' ') }}: {{ sval }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="severity-chip">N/A</span>
+            {% endif %}
+          </div>
+
+          <div class="cond-meta-footer">
+            <div class="cond-provenance-text">
+              Actual generator (Split B): <code>{{ actual_gen_label }}</code>
+              {% if msum.get('valid_b_count') is number and msum.get('split_b_count') is number %}
+                | Valid Split B: <strong>{{ msum.get('valid_b_count') }}/{{ msum.get('split_b_count') }}</strong>
+              {% endif %}
+              {% if msum.get('fallback_b_count') is number and msum.get('fallback_b_count') > 0 %}
+                | Fallback used: <strong>{{ msum.get('fallback_b_count') }}</strong>{% if msum.get('fallback_reason') %} ({{ msum.get('fallback_reason') }}){% endif %}
+              {% endif %}
+              {% if ret_val is not none %}
+                | FP32 retention: <strong>{{ '%.2f'|format(ret_val) }}</strong>
+              {% endif %}
+            </div>
+            <button type="button" class="btn-inspect-card" data-inspect-cond="{{ cid }}">
+              Inspect 4-Panel Comparison
+            </button>
+          </div>
+        </article>
         {% endfor %}
       </div>
     </section>
 
-    <section class="argon-log-section">
-      <h2>Gemini 4 Argon Call Log (Interactions API)</h2>
-      {% if state.argon_logs %}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Iter</th>
-            <th>Interaction ID</th>
-            <th>Thinking</th>
-            <th>Input Tokens</th>
-            <th>Output Tokens</th>
-            <th>Latency (s)</th>
-            <th>Action</th>
-            <th>Gate Verdict</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for log in state.argon_logs %}
-          <tr>
-            <td>{{ log.iteration }}</td>
-            <td><code>{{ log.interaction_id }}</code></td>
-            <td>{{ log.thinking_level }}</td>
-            <td>{{ log.usage.total_input_tokens }}</td>
-            <td>{{ log.usage.total_output_tokens }}</td>
-            <td>{{ log.latency_s }}</td>
-            <td><code>{{ log.action.type }}</code></td>
-            <td><strong>{{ log.gate_verdict }}</strong></td>
-          </tr>
+    <!-- EXPANDED FAILING CARD: 4-PANEL COMPARISON + VERBATIM DIAGNOSIS + CITED EVIDENCE -->
+    {% set default_inspect_id = 'fog' if ('fog' in conds_map) else (scenario.get('conditions', [{'id': 'fog'}])[0].get('id', 'fog')) %}
+    {% set exp_cstate = conds_map.get(default_inspect_id) if (conds_map.get(default_inspect_id) is mapping) else {} %}
+    <section class="expanded-comparison-section" id="expanded-comparison-section">
+      <div class="section-header-row">
+        <div>
+          <h2 id="expanded-section-title">Expanded Condition Inspection — 4-Panel Comparison &amp; Verbatim Diagnosis</h2>
+          <p class="section-desc">
+            Desktop panels (&ge; 320 px each) comparing the exact same Split-B photo under FP32 reference, baseline INT8, and repaired INT8 alongside per-class F1 and per-size recall deltas. Missing comparison data is reported as N/A.
+          </p>
+        </div>
+        <div class="expanded-cond-selector" id="expanded-cond-selector">
+          {% for cond in scenario.get('conditions', []) %}
+          {% set cid = cond.get('id', '') %}
+          <button type="button" class="cond-select-btn {% if cid == default_inspect_id %}active{% endif %}" data-select-cond="{{ cid }}">
+            {{ cond.get('name', cid) }} ({{ cid }})
+          </button>
           {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <p class="empty-notice">Argon diagnosis and repair loop: <strong>not yet run</strong></p>
-      {% endif %}
+        </div>
+      </div>
+
+      <div class="four-panel-grid" id="four-panel-grid">
+        <div class="comparison-panel" id="panel-1-original">
+          <div class="panel-header">
+            <h4>Panel 1: Original Split-B Photo + FP32 Reference (Green)</h4>
+            <code id="panel-1-img-id">{{ hero_file }}</code>
+          </div>
+          <div class="panel-body" id="panel-1-body">
+            <img src="/preview/{{ scenario.id }}/original/{{ hero_file }}?model=fp32"
+                 alt="Original + FP32 reference" class="panel-img">
+          </div>
+        </div>
+
+        <div class="comparison-panel" id="panel-2-baseline">
+          <div class="panel-header">
+            <h4>Panel 2: Condition + Baseline INT8 Overlay (FP32 Green vs Baseline Orange)</h4>
+            <code id="panel-2-img-id">{{ default_inspect_id }} · {{ hero_file }}</code>
+          </div>
+          <div class="panel-body" id="panel-2-body">
+            <img src="/preview/{{ scenario.id }}/{{ default_inspect_id }}/{{ hero_file }}?model=baseline"
+                 alt="{{ default_inspect_id }} + Baseline INT8 Overlay" class="panel-img">
+          </div>
+        </div>
+
+        <div class="comparison-panel" id="panel-3-repaired">
+          <div class="panel-header">
+            <h4>Panel 3: Condition + Repaired INT8 Overlay (FP32 Green vs Repaired Orange)</h4>
+            <code id="panel-3-img-id">{{ default_inspect_id }} · {{ hero_file }}</code>
+          </div>
+          <div class="panel-body" id="panel-3-body">
+            {% if state.get('has_repaired_model') %}
+            <img src="/preview/{{ scenario.id }}/{{ default_inspect_id }}/{{ hero_file }}?model=repaired"
+                 alt="{{ default_inspect_id }} + Repaired INT8 Overlay" class="panel-img">
+            {% else %}
+            <div class="panel-na-box">N/A — Repaired INT8 overlay not yet available (pending repair)</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="comparison-panel" id="panel-4-deltas">
+          <div class="panel-header">
+            <h4>Panel 4: Per-Class F1 &amp; Per-Size Recall Deltas (Baseline → Final)</h4>
+            <span class="panel-sub-badge" id="panel-4-cond-label">Condition: {{ default_inspect_id }}</span>
+          </div>
+          <div class="panel-body panel-deltas-body" id="panel-4-body">
+            <table class="delta-table">
+              <thead>
+                <tr>
+                  <th>Bucket / Class</th>
+                  <th>Baseline</th>
+                  <th>Final / Repaired</th>
+                  <th>Delta</th>
+                </tr>
+              </thead>
+              <tbody id="panel-4-table-body">
+                <tr>
+                  <td>Overall F1</td>
+                  <td>{{ '%.4f'|format(exp_cstate.get('baseline_f1')) if exp_cstate.get('baseline_f1') is number else 'N/A' }}</td>
+                  <td>{{ '%.4f'|format(exp_cstate.get('final_f1')) if exp_cstate.get('final_f1') is number else 'N/A' }}</td>
+                  <td>N/A</td>
+                </tr>
+                {% set exp_ps = exp_cstate.get('per_size') if (exp_cstate.get('per_size') is mapping) else {} %}
+                {% for sz in ['small', 'medium', 'large'] %}
+                <tr>
+                  <td>Size Recall: {{ sz }}</td>
+                  <td>{{ '%.4f'|format(exp_ps.get(sz)) if exp_ps.get(sz) is number else 'N/A' }}</td>
+                  <td>N/A</td>
+                  <td>N/A</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Verbatim Diagnosis + Cited Evidence Images -->
+      <div class="expanded-diagnosis-block">
+        <div class="expanded-diag-left">
+          <h3>Verbatim Argon Diagnosis &amp; Verified Claims</h3>
+          <pre class="diagnosis-pre" id="expanded-diagnosis-text">N/A — Argon diagnosis has not been recorded for condition '{{ default_inspect_id }}' yet.</pre>
+          <div id="expanded-claims-list" class="claims-list"></div>
+        </div>
+        <div class="expanded-diag-right">
+          <h3>Cited Evidence Images (Enlarged from Split B)</h3>
+          <div id="cited-evidence-grid" class="cited-evidence-grid">
+            <div class="panel-na-box">No cited evidence images recorded for this condition yet.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ARGON CALL LOG -->
+    <section class="argon-log-section" id="argon-log-section">
+      <h2>Gemini 4 Argon Call Log (Interactions API)</h2>
+      <p class="section-desc">
+        Every Argon call is chained via <code>previous_interaction_id</code> and logged with measured token usage, latency, thinking level, chosen action, and zero-regression gate verdict.
+      </p>
+      <div id="argon-log-container">
+        {% if state.get('argon_logs') %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Iter</th>
+              <th>Interaction ID</th>
+              <th>Thinking</th>
+              <th>Input Tokens</th>
+              <th>Output Tokens</th>
+              <th>Thought Tokens</th>
+              <th>Latency (s)</th>
+              <th>Action</th>
+              <th>Gate Verdict</th>
+              <th>Cache / Review</th>
+            </tr>
+          </thead>
+          <tbody id="argon-log-tbody">
+            {% for log in state.get('argon_logs', []) %}
+            {% set u = log.get('usage') if (log is mapping and log.get('usage') is mapping) else (log.usage if log.usage is defined else {}) %}
+            {% set act = log.get('action') if (log is mapping and log.get('action') is mapping) else (log.action if log.action is defined else {}) %}
+            <tr>
+              <td>{{ log.get('iteration', 'N/A') if log is mapping else log.iteration }}</td>
+              <td><code>{{ log.get('interaction_id', 'N/A') if log is mapping else log.interaction_id }}</code></td>
+              <td>{{ log.get('thinking_level', 'high') if log is mapping else log.thinking_level }}</td>
+              <td>{{ u.get('total_input_tokens') if (u is mapping and u.get('total_input_tokens') is number) else 'N/A' }}</td>
+              <td>{{ u.get('total_output_tokens') if (u is mapping and u.get('total_output_tokens') is number) else 'N/A' }}</td>
+              <td>{{ u.get('total_thought_tokens') if (u is mapping and u.get('total_thought_tokens') is number) else 'N/A' }}</td>
+              <td>{{ log.get('latency_s') if (log is mapping and log.get('latency_s') is number) else 'N/A' }}</td>
+              <td><code>{{ act.get('type', 'N/A') if act is mapping else 'N/A' }}</code></td>
+              <td><strong>{{ log.get('gate_verdict', 'N/A') if log is mapping else log.gate_verdict }}</strong></td>
+              <td>
+                {% if log is mapping and log.get('cached') %}cached from identical config{% else %}measured{% endif %}
+                {% if log is mapping and log.get('needs_human') %} | needs_human{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="empty-notice" id="argon-log-empty">Argon diagnosis and repair loop: <strong>not yet run</strong></p>
+        {% endif %}
+      </div>
+    </section>
+
+    <!-- OPTIONAL FIXED-POLICY COMPARISON TABLE (Section 12b, shown when measured) -->
+    <section class="policy-section" id="policy-comparison-section" {% if not state.get('policy_comparison') %}style="display: none;"{% endif %}>
+      <h2>Fixed-Policy Comparison vs. Gemini 4 Argon</h2>
+      <div id="policy-comparison-container"></div>
     </section>
   </main>
 
+  <script id="initial-state-data" type="application/json">{{ state_json | safe }}</script>
   <script src="/static/app.js"></script>
 </body>
 </html>

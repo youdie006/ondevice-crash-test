@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import os
+import platform
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -11,6 +17,99 @@ class Measured:
     size_bytes: int
     median_ms: float
     quantized_ops: int
+
+
+def machine_runtime_fingerprint(
+    preprocess: str = "stretch",
+    imgsz: int = 320,
+    intra_threads: int = 4,
+    inter_threads: int = 1,
+) -> str:
+    import onnxruntime as ort
+
+    info = {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "node": platform.node(),
+        "release": platform.release(),
+        "cpu_count": os.cpu_count(),
+        "k_service": os.environ.get("K_SERVICE", ""),
+        "k_revision": os.environ.get("K_REVISION", ""),
+        "ort_version": getattr(ort, "__version__", "unknown"),
+        "preprocess": preprocess,
+        "imgsz": int(imgsz),
+        "intra_threads": int(intra_threads),
+        "inter_threads": int(inter_threads),
+        "providers": ["CPUExecutionProvider"],
+    }
+    raw = json.dumps(info, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def measure_model(
+    onnx_path: str | Path,
+    preprocess: str = "stretch",
+    n_runs: int = 20,
+    cache_dir: str | Path | None = None,
+    force_remeasure: bool = False,
+    is_fp32: bool = False,
+) -> Measured:
+    from odct.infer import Detector
+    from odct.quant import count_quantized_ops, sha256_file
+
+    path = Path(onnx_path)
+    size_bytes = path.stat().st_size
+    model_sha = sha256_file(path)
+    machine_fp = machine_runtime_fingerprint(preprocess=preprocess, imgsz=320)
+    cache_key = hashlib.sha256(
+        f"{model_sha}:{preprocess}:{n_runs}:{machine_fp}:{int(is_fp32)}".encode("utf-8")
+    ).hexdigest()
+
+    c_dir = Path(cache_dir) if cache_dir is not None else Path("/tmp/odct_cache/latency")
+    c_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = c_dir / f"{cache_key}.json"
+
+    if not force_remeasure and cache_file.is_file():
+        try:
+            data = json.loads(cache_file.read_text())
+            if (
+                data.get("machine_fp") == machine_fp
+                and data.get("model_sha256") == model_sha
+                and data.get("n_runs") == int(n_runs)
+            ):
+                return Measured(
+                    size_bytes=int(size_bytes),
+                    median_ms=float(data["median_ms"]),
+                    quantized_ops=int(data["quantized_ops"]),
+                )
+        except Exception:
+            pass
+
+    det = Detector(path, preprocess=preprocess, imgsz=320)
+    median_ms = det.latency_ms(n_runs=n_runs)
+    if is_fp32:
+        q_ops = 1
+    else:
+        q_ops, _, _ = count_quantized_ops(path)
+
+    payload = {
+        "machine_fp": machine_fp,
+        "model_sha256": model_sha,
+        "preprocess": preprocess,
+        "n_runs": int(n_runs),
+        "size_bytes": int(size_bytes),
+        "median_ms": float(median_ms),
+        "quantized_ops": int(q_ops),
+    }
+    tmp_f = c_dir / f".{cache_key}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+    try:
+        tmp_f.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp_f, cache_file)
+    finally:
+        if tmp_f.exists():
+            tmp_f.unlink(missing_ok=True)
+
+    return Measured(size_bytes=int(size_bytes), median_ms=float(median_ms), quantized_ops=int(q_ops))
 
 
 def _is_valid_positive_number(val: int | float) -> bool:

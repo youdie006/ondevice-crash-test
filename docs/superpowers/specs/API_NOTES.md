@@ -69,7 +69,7 @@ r = client.interactions.create(
         # ... more images, each preceded by a short text label with its id
     ],
     generation_config={"thinking_level": "high", "max_output_tokens": 4096},   # minimal | low | medium | high
-    response_format={"type": "json_schema", "json_schema": ACTION_SCHEMA},     # structured output; confirm exact form via gemini-skills
+    response_format=ACTION_SCHEMA,                                             # verified live on 2026-10-16: pass JSON schema object directly (wrapper {"type": "json_schema", ...} returns HTTP 400)
     previous_interaction_id=prev_id,                                           # None on the first call of a chain
 )
 text = r.output_text
@@ -77,6 +77,7 @@ usage = r.usage            # total_input_tokens, total_output_tokens, total_thou
 interaction_id = r.id
 ```
 
+- **Live API verification note (2026-10-16):** Passing `response_format={"type": "json_schema", "json_schema": ACTION_SCHEMA}` returns HTTP 400 (`"The value 'json_schema' is not supported for 'type' at 'response_format'. Supported values: audio,text,image,integer,array,boolean,string,object,number,video"`). Passing the JSON schema object directly (`response_format=ACTION_SCHEMA` with root `"type": "object"` and `"additionalProperties": False`) succeeded live on `gemini-4-argon` with `thinking_level="high"`.
 - `ImageContent` takes `data` (base64) or `uri`; there is no `file_id`.
 - Usage field names are `total_*`, not `prompt_tokens` or `input_tokens`.
 - Other kwargs: `system_instruction`, `tools`, `stream`, `store`, `background`, `response_modalities`.

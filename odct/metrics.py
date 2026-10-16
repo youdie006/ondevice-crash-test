@@ -6,9 +6,9 @@ import argparse
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import yaml
@@ -41,6 +41,7 @@ class CondMetrics:
     fn: int = 0
     ci90_low: float | None = None
     ci90_high: float | None = None
+    exclude_reasons: dict[str, int] = field(default_factory=dict)
 
 
 def is_passing_f1(metrics: CondMetrics, threshold: float = 0.80) -> bool:
@@ -133,6 +134,10 @@ def evaluate_condition(
     condition_images: Sequence[str | Path],
     iou: float = 0.5,
     pass_threshold: float = 0.80,
+    on_image: Callable[[dict[str, Any]], None] | None = None,
+    pre_excluded_images: int = 0,
+    pre_exclude_reasons: dict[str, int] | None = None,
+    requested_n_images: int | None = None,
 ) -> CondMetrics:
     if len(originals) != len(condition_images):
         raise ValueError("originals and condition_images must have the same length")
@@ -144,8 +149,9 @@ def evaluate_condition(
     total_p = 0
 
     valid_images = 0
-    excluded_images = 0
+    excluded_images = int(pre_excluded_images)
     collapse_images = 0
+    exclude_reasons: dict[str, int] = dict(pre_exclude_reasons) if pre_exclude_reasons else {}
 
     class_tp: dict[int, int] = {}
     class_fp: dict[int, int] = {}
@@ -159,25 +165,50 @@ def evaluate_condition(
     for orig_p, cond_p in zip(originals, condition_images):
         orig_path = Path(orig_p)
         cond_path = Path(cond_p)
-        with Image.open(orig_path) as im:
-            orig_w, orig_h = im.size
+        if not orig_path.is_file() or not cond_path.is_file():
+            excluded_images += 1
+            exclude_reasons["missing_file"] = exclude_reasons.get("missing_file", 0) + 1
+            continue
+
+        try:
+            with Image.open(orig_path) as im:
+                orig_w, orig_h = im.size
+        except Exception:
+            excluded_images += 1
+            exclude_reasons["corrupt_image"] = exclude_reasons.get("corrupt_image", 0) + 1
+            continue
 
         d0 = fp32.detect(orig_path)
         if len(d0) == 0:
             excluded_images += 1
+            exclude_reasons["empty_fp32_original"] = exclude_reasons.get("empty_fp32_original", 0) + 1
             continue
 
         if orig_path.resolve() == cond_path.resolve():
             dc = d0
             ref = d0
         else:
-            dc = fp32.detect(cond_path)
+            try:
+                dc = fp32.detect(cond_path)
+            except Exception:
+                excluded_images += 1
+                exclude_reasons["corrupt_condition_image"] = (
+                    exclude_reasons.get("corrupt_condition_image", 0) + 1
+                )
+                continue
             ref = persisted(d0, dc, iou=iou)
+
+        total_d0 += len(d0)
 
         if len(ref) == 0:
             collapse_images += 1
-        else:
-            valid_images += 1
+            exclude_reasons["fp32_condition_collapse"] = (
+                exclude_reasons.get("fp32_condition_collapse", 0) + 1
+            )
+            continue
+
+        valid_images += 1
+        total_p += len(ref)
 
         q = int8.detect(cond_path)
 
@@ -187,8 +218,6 @@ def evaluate_condition(
         total_tp += tp
         total_fp += fp
         total_fn += fn
-        total_d0 += len(d0)
-        total_p += len(ref)
         per_img_counts.append((tp, fp, fn))
 
         for r_idx, r_det in enumerate(ref):
@@ -206,8 +235,25 @@ def evaluate_condition(
                 c = q_det.cls
                 class_fp[c] = class_fp.get(c, 0) + 1
 
+        if on_image is not None:
+            on_image(
+                {
+                    "orig_path": orig_path,
+                    "cond_path": cond_path,
+                    "d0": d0,
+                    "dc": dc,
+                    "ref": ref,
+                    "q": q,
+                    "tp": tp,
+                    "fp": fp,
+                    "fn": fn,
+                    "valid_images": valid_images,
+                }
+            )
+
     denom = 2 * total_tp + total_fp + total_fn
-    if total_p > 0 and denom > 0 and len(originals) > 0 and total_d0 > 0:
+    total_n_images = requested_n_images if requested_n_images is not None else (len(originals) + int(pre_excluded_images))
+    if total_p > 0 and denom > 0 and total_n_images > 0 and total_d0 > 0:
         raw_f1: float | None = float(2 * total_tp) / float(denom)
         f1_val: float | None = round(raw_f1, 4)
     else:
@@ -274,7 +320,7 @@ def evaluate_condition(
         retention=retention_val,
         per_class=per_class,
         per_size=per_size,
-        n_images=len(originals),
+        n_images=total_n_images,
         limitation=limitation_flag,
         raw_f1=raw_f1,
         passed=passed_flag,
@@ -288,6 +334,7 @@ def evaluate_condition(
         fn=total_fn,
         ci90_low=ci_low,
         ci90_high=ci_high,
+        exclude_reasons=exclude_reasons,
     )
 
 

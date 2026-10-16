@@ -48,7 +48,8 @@
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
       "status": "PASS",
-      "generator_summary": "classical (classical_night)",
+      "limitation_status": "MODEL_LIMITATION",
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 26,
       "audit_failure_rate": "N/A"
@@ -93,7 +94,8 @@
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
       "status": "PASS",
-      "generator_summary": "classical (classical_glare)",
+      "limitation_status": null,
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 40,
       "audit_failure_rate": "N/A"
@@ -136,7 +138,8 @@
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
       "status": "PASS",
-      "generator_summary": "classical (classical_rain)",
+      "limitation_status": null,
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 0,
       "audit_failure_rate": "N/A"
@@ -179,8 +182,9 @@
       },
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
-      "status": "MODEL_LIMITATION",
-      "generator_summary": "classical (classical_fog)",
+      "status": "FAIL",
+      "limitation_status": "MODEL_LIMITATION",
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 0,
       "audit_failure_rate": "N/A"
@@ -224,7 +228,8 @@
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
       "status": "PASS",
-      "generator_summary": "classical (classical_occlusion)",
+      "limitation_status": "MODEL_LIMITATION",
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 0,
       "audit_failure_rate": "N/A"
@@ -268,7 +273,8 @@
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
       "status": "PASS",
-      "generator_summary": "classical (classical_blur)",
+      "limitation_status": "MODEL_LIMITATION",
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 0,
       "audit_failure_rate": "N/A"
@@ -313,7 +319,8 @@
       "pass_threshold": 0.8337,
       "pass_threshold_raw": 0.8337209302325581,
       "status": "PASS",
-      "generator_summary": "classical (classical_smudge)",
+      "limitation_status": null,
+      "generator_summary": "classical (deterministic) in this run",
       "nano_banana_b_count": 0,
       "fallback_b_count": 0,
       "audit_failure_rate": "N/A"

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import onnx
+import onnxruntime as ort
 from onnxruntime.quantization import (
     CalibrationDataReader,
     CalibrationMethod,
@@ -28,6 +32,49 @@ class QuantResult:
     quantized_op_ratio: float
     quantized_ops: int = 0
     total_ops: int = 0
+    config_hash: str = ""
+    cached: bool = False
+
+
+def sha256_file(path: str | Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def compute_quant_config_hash(
+    fp32_path: str | Path,
+    calib_images: Sequence[str | Path],
+    method: str = "minmax",
+    per_channel: bool = False,
+    preprocess: str = "stretch",
+    nodes_to_exclude: Sequence[str] | None = None,
+    op_types_to_quantize: Sequence[str] = ("Conv",),
+    extra_options: dict[str, Any] | None = None,
+    imgsz: int = 320,
+) -> str:
+    fp32_sha = sha256_file(fp32_path)
+    calib_entries = []
+    for p in calib_images:
+        pth = Path(p)
+        calib_entries.append({"name": pth.name, "sha256": sha256_file(pth)})
+
+    payload = {
+        "fp32_sha256": fp32_sha,
+        "calib_images": calib_entries,
+        "method": method.lower(),
+        "per_channel": bool(per_channel),
+        "preprocess": preprocess,
+        "nodes_to_exclude": sorted(set(nodes_to_exclude or [])),
+        "op_types_to_quantize": list(op_types_to_quantize),
+        "extra_options": extra_options or {},
+        "imgsz": int(imgsz),
+        "ort_version": getattr(ort, "__version__", "unknown"),
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 class ImageListCalibrationReader(CalibrationDataReader):
@@ -79,17 +126,24 @@ def count_quantized_ops(onnx_path: str | Path) -> tuple[int, int, float]:
 
 
 def get_preset_exclusion_nodes(onnx_path: str | Path, preset: str) -> list[str]:
+    import re
+
     model = onnx.load(str(onnx_path))
     conv_nodes = [n.name for n in model.graph.node if n.op_type == "Conv" and n.name]
     if preset == "first_conv":
         return conv_nodes[:2]
     if preset == "detect_head":
-        head_nodes = [
-            n.name
-            for n in model.graph.node
-            if n.op_type == "Conv" and n.name and "/model.23/" in n.name and n.name.endswith(".2/Conv")
-        ]
-        return head_nodes if head_nodes else conv_nodes[-6:]
+        pattern = re.compile(r"(?:^|/)model\.(\d+)(?:/|$)")
+        indices: list[int] = []
+        for name in conv_nodes:
+            m = pattern.search(name)
+            if m:
+                indices.append(int(m.group(1)))
+        if indices:
+            max_idx = max(indices)
+            head_pattern = re.compile(rf"(?:^|/)model\.{max_idx}(?:/|$)")
+            return [name for name in conv_nodes if head_pattern.search(name)]
+        return conv_nodes[-6:]
     raise ValueError(f"Unknown exclusion preset: {preset}")
 
 
@@ -101,14 +155,11 @@ def quantize(
     per_channel: bool = False,
     preprocess: str = "stretch",
     nodes_to_exclude: list[str] | None = None,
+    use_cache: bool = True,
 ) -> QuantResult:
     fp32_p = Path(fp32_path)
     out_p = Path(out_path)
     out_p.parent.mkdir(parents=True, exist_ok=True)
-
-    pre_p = fp32_p.with_name(f"{fp32_p.stem}_pre.onnx")
-    if not pre_p.exists():
-        quant_pre_process(str(fp32_p), str(pre_p))
 
     method_map = {
         "minmax": CalibrationMethod.MinMax,
@@ -118,6 +169,52 @@ def quantize(
     method_key = method.lower()
     if method_key not in method_map:
         raise ValueError(f"Unsupported calibration method: {method}")
+
+    extra_options: dict[str, Any] = {}
+    if method_key == "percentile":
+        extra_options["CalibPercentile"] = 99.999
+
+    config_hash = compute_quant_config_hash(
+        fp32_path=fp32_p,
+        calib_images=calib_images,
+        method=method_key,
+        per_channel=per_channel,
+        preprocess=preprocess,
+        nodes_to_exclude=nodes_to_exclude,
+        op_types_to_quantize=["Conv"],
+        extra_options=extra_options,
+        imgsz=320,
+    )
+
+    meta_p = out_p.with_name(f"{out_p.name}.meta.json")
+    if use_cache and out_p.is_file() and meta_p.is_file():
+        try:
+            meta = json.loads(meta_p.read_text())
+            if (
+                meta.get("config_hash") == config_hash
+                and meta.get("model_sha256") == sha256_file(out_p)
+            ):
+                return QuantResult(
+                    path=str(out_p),
+                    size_bytes=int(meta["size_bytes"]),
+                    quantized_op_ratio=float(meta["quantized_op_ratio"]),
+                    quantized_ops=int(meta["quantized_ops"]),
+                    total_ops=int(meta["total_ops"]),
+                    config_hash=config_hash,
+                    cached=True,
+                )
+        except Exception:
+            pass
+
+    pre_p = fp32_p.with_name(f"{fp32_p.stem}_pre.onnx")
+    if not pre_p.is_file():
+        tmp_pre = pre_p.with_name(f".{pre_p.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
+        try:
+            quant_pre_process(str(fp32_p), str(tmp_pre))
+            os.replace(tmp_pre, pre_p)
+        finally:
+            if tmp_pre.exists():
+                tmp_pre.unlink(missing_ok=True)
 
     model_meta = onnx.load(str(pre_p))
     input_name = model_meta.graph.input[0].name if model_meta.graph.input else "images"
@@ -129,32 +226,51 @@ def quantize(
         imgsz=320,
     )
 
-    extra_options: dict = {}
-    if method_key == "percentile":
-        extra_options["CalibPercentile"] = 99.999
+    tmp_out = out_p.with_name(f".{out_p.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
+    tmp_meta = meta_p.with_name(f".{meta_p.name}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
+    try:
+        quantize_static(
+            str(pre_p),
+            str(tmp_out),
+            calibration_data_reader=reader,
+            quant_format=QuantFormat.QDQ,
+            op_types_to_quantize=["Conv"],
+            activation_type=QuantType.QUInt8,
+            weight_type=QuantType.QInt8,
+            per_channel=bool(per_channel),
+            calibrate_method=method_map[method_key],
+            nodes_to_exclude=nodes_to_exclude or [],
+            extra_options=extra_options,
+        )
+        size_bytes = tmp_out.stat().st_size
+        q_ops, total_ops, ratio = count_quantized_ops(tmp_out)
+        model_sha = sha256_file(tmp_out)
+        os.replace(tmp_out, out_p)
 
-    quantize_static(
-        str(pre_p),
-        str(out_p),
-        calibration_data_reader=reader,
-        quant_format=QuantFormat.QDQ,
-        op_types_to_quantize=["Conv"],
-        activation_type=QuantType.QUInt8,
-        weight_type=QuantType.QInt8,
-        per_channel=bool(per_channel),
-        calibrate_method=method_map[method_key],
-        nodes_to_exclude=nodes_to_exclude or [],
-        extra_options=extra_options,
-    )
+        meta_payload = {
+            "config_hash": config_hash,
+            "model_sha256": model_sha,
+            "size_bytes": size_bytes,
+            "quantized_ops": q_ops,
+            "total_ops": total_ops,
+            "quantized_op_ratio": ratio,
+        }
+        tmp_meta.write_text(json.dumps(meta_payload, indent=2))
+        os.replace(tmp_meta, meta_p)
+    finally:
+        if tmp_out.exists():
+            tmp_out.unlink(missing_ok=True)
+        if tmp_meta.exists():
+            tmp_meta.unlink(missing_ok=True)
 
-    size_bytes = out_p.stat().st_size
-    q_ops, total_ops, ratio = count_quantized_ops(out_p)
     return QuantResult(
         path=str(out_p),
         size_bytes=size_bytes,
         quantized_op_ratio=ratio,
         quantized_ops=q_ops,
         total_ops=total_ops,
+        config_hash=config_hash,
+        cached=False,
     )
 
 

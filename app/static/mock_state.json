@@ -1,0 +1,234 @@
+{
+  "note": "Mock preview — not measured. Loaded ONLY when ?mock=1 is explicitly in the browser query string.",
+  "sequence": [
+    {
+      "run_id": "mock_preview_only",
+      "phase": "evaluating",
+      "mode": "mock",
+      "n_images": 20,
+      "progress": {
+        "phase": "evaluating",
+        "phase_elapsed_s": 2.4,
+        "step": {
+          "done": 6,
+          "total": 20,
+          "label": "fog 6/20 (mock preview)"
+        },
+        "recent": [
+          {
+            "image_id": "000000000139.jpg",
+            "condition": "fog",
+            "thumb_url": "/artifacts/data/robot_vacuum/conditions/fog/000000000139.jpg",
+            "fp32_boxes": 3,
+            "int8_boxes": 2,
+            "matched": 2,
+            "missed": 1,
+            "has_indoor_objects": true,
+            "image_size": [640, 426],
+            "fp32_boxes_geom": [
+              {"box": [412, 156, 466, 296], "missed": false},
+              {"box": [291, 218, 353, 316], "missed": false},
+              {"box": [7, 166, 155, 263], "missed": true}
+            ],
+            "int8_boxes_geom": [
+              [414, 158, 464, 294],
+              [293, 220, 351, 314]
+            ]
+          },
+          {
+            "image_id": "000000004495.jpg",
+            "condition": "fog",
+            "thumb_url": "/artifacts/data/robot_vacuum/conditions/fog/000000004495.jpg",
+            "fp32_boxes": 3,
+            "int8_boxes": 2,
+            "matched": 2,
+            "missed": 1,
+            "has_indoor_objects": true,
+            "image_size": [640, 480],
+            "fp32_boxes_geom": [
+              {"box": [240, 180, 420, 360], "missed": false},
+              {"box": [60, 210, 190, 380], "missed": true}
+            ],
+            "int8_boxes_geom": [
+              [243, 183, 417, 356]
+            ]
+          }
+        ],
+        "argon": null,
+        "action": null,
+        "gate": null
+      }
+    },
+    {
+      "run_id": "mock_preview_only",
+      "phase": "diagnosing",
+      "mode": "mock",
+      "n_images": 20,
+      "progress": {
+        "phase": "diagnosing",
+        "phase_elapsed_s": 5.0,
+        "step": {
+          "done": 20,
+          "total": 20,
+          "label": "Argon multimodal diagnosis (mock preview)"
+        },
+        "recent": [
+          {
+            "image_id": "000000000139.jpg",
+            "condition": "fog",
+            "thumb_url": "/artifacts/data/robot_vacuum/conditions/fog/000000000139.jpg",
+            "fp32_boxes": 3,
+            "int8_boxes": 2,
+            "matched": 2,
+            "missed": 1,
+            "has_indoor_objects": true
+          }
+        ],
+        "argon": {
+          "status": "thinking",
+          "images_sent": 16,
+          "input_tokens": null,
+          "output_tokens": null,
+          "elapsed_s": 12.0
+        },
+        "action": null,
+        "gate": null
+      }
+    },
+    {
+      "run_id": "mock_preview_only",
+      "phase": "repairing",
+      "mode": "mock",
+      "n_images": 20,
+      "progress": {
+        "phase": "repairing",
+        "phase_elapsed_s": 3.1,
+        "step": {
+          "done": 1,
+          "total": 1,
+          "label": "Re-quantizing Conv QDQ (mock preview)"
+        },
+        "recent": [
+          {
+            "image_id": "000000000139.jpg",
+            "condition": "fog",
+            "thumb_url": "/artifacts/data/robot_vacuum/conditions/fog/000000000139.jpg",
+            "fp32_boxes": 3,
+            "int8_boxes": 2,
+            "matched": 2,
+            "missed": 1,
+            "has_indoor_objects": true
+          }
+        ],
+        "argon": {
+          "status": "received",
+          "images_sent": 16,
+          "input_tokens": 18420,
+          "output_tokens": 412,
+          "elapsed_s": 18.4
+        },
+        "action": {
+          "type": "R2_CALIB_METHOD",
+          "params_chips": ["Percentile 99.99", "per-channel Conv", "+Split-A fog calib"]
+        },
+        "gate": null
+      },
+      "argon_logs": [
+        {
+          "iteration": 1,
+          "interaction_id": "mock_interaction_preview_01",
+          "thinking_level": "high",
+          "latency_s": 18.4,
+          "usage": {
+            "total_input_tokens": 18420,
+            "total_output_tokens": 412,
+            "total_thought_tokens": 230,
+            "total_cached_tokens": 0,
+            "total_tokens": 19062
+          },
+          "diagnosis": [
+            {
+              "condition": "fog",
+              "cause": "quantization_drift",
+              "pattern": "[Mock preview — not measured] Low-contrast fog compresses activation dynamic range in early Conv layers while FP32 still retains objects on b_001.",
+              "evidence_images": ["b_001"],
+              "claims": [
+                {
+                  "condition": "fog",
+                  "field": "f1",
+                  "value": 0.8026,
+                  "verified": true
+                }
+              ]
+            }
+          ],
+          "action": {
+            "type": "R2_CALIB_METHOD",
+            "params_chips": ["Percentile 99.99", "per-channel Conv"]
+          },
+          "gate_verdict": "PENDING",
+          "rationale": "[Mock preview — not measured] Switch calibration from MinMax to Percentile 99.99 on Split A."
+        }
+      ]
+    },
+    {
+      "run_id": "mock_preview_only",
+      "phase": "done",
+      "mode": "mock",
+      "n_images": 20,
+      "progress": {
+        "phase": "done",
+        "phase_elapsed_s": 1.2,
+        "step": {
+          "done": 20,
+          "total": 20,
+          "label": "Zero-regression gate complete (mock preview)"
+        },
+        "recent": [
+          {
+            "image_id": "000000000139.jpg",
+            "condition": "fog",
+            "thumb_url": "/artifacts/data/robot_vacuum/conditions/fog/000000000139.jpg",
+            "fp32_boxes": 3,
+            "int8_boxes": 3,
+            "matched": 3,
+            "missed": 0,
+            "has_indoor_objects": true,
+            "image_size": [640, 426],
+            "fp32_boxes_geom": [
+              {"box": [412, 156, 466, 296], "missed": false},
+              {"box": [291, 218, 353, 316], "missed": false},
+              {"box": [7, 166, 155, 263], "missed": false}
+            ],
+            "int8_boxes_geom": [
+              [414, 158, 464, 294],
+              [293, 220, 351, 314],
+              [9, 168, 153, 261]
+            ]
+          }
+        ],
+        "argon": {
+          "status": "received",
+          "images_sent": 16,
+          "input_tokens": 18420,
+          "output_tokens": 412,
+          "elapsed_s": 18.4
+        },
+        "action": {
+          "type": "R2_CALIB_METHOD",
+          "params_chips": ["Percentile 99.99", "per-channel Conv", "+Split-A fog calib"]
+        },
+        "gate": {
+          "verdict": "ACCEPTED (Mock Preview)",
+          "reasons": ["mock preview — not measured"],
+          "control_delta": 0.0082,
+          "budget_ratios": {
+            "size_ratio_vs_baseline": 1.01,
+            "ms_ratio_vs_baseline": 1.0,
+            "ops_ratio_vs_baseline": 1.0
+          }
+        }
+      }
+    }
+  ]
+}

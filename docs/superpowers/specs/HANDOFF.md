@@ -27,6 +27,10 @@ Build only goals G1–G5 from the design. Everything below is deferred unless G1
 
 The first baseline quantized every op and scored control F1 0.11: the final Concat mixes box coordinates (0–320) and class scores (0–1) in one tensor, and one uint8 scale crushes the scores. Verified fix: `op_types_to_quantize=["Conv"]` in `odct/quant.py` for every model, baseline and repairs. With it the lab-like baseline measures 0.884 on clean split B; Percentile 0.913, per-channel 0.935, all-40 calibration 0.898. Rules changed before any condition was evaluated: the condition pass threshold is baseline control F1 − 0.05 (fixed at run start, shown on each card), and the control sanity bar is 0.80. The regression gate (control drop ≤ 0.02, no passing condition falls below the threshold, budget holds) is unchanged. Also measured: INT8 is 0.28× the FP32 size but not faster on this x86 CPU (about 7 ms vs 5 ms); the page states that as a fact, the budget is baseline-relative.
 
+## Block C finding (14:08) and one rule amendment
+
+First matrix on split B with classical generators (threshold 0.834 = control 0.884 − 0.05): night 0.906, glare 0.896, rain 0.911, **fog 0.803 fail**, occlusion 0.933, blur 0.914, smudge 0.891. FP32 retention is below 0.7 under night (0.59), fog (0.65), blur (0.64) and occlusion (0.67): the full-precision model itself loses a third of the objects there. Amendment: the "model limitation" tag is informational and the compression verdict applies to every condition (the persisted-object reference already isolates compression drift). Fog is therefore a real compression failure and the first repair target. Nano Banana night and glare results on split B are still pending and may add red cards. Do not touch severities or the baseline. Narrative for the page and the video: the tool separates two causes, "your compression broke here" (fog) and "your model breaks here regardless of compression" (night, blur, occlusion), and only repairs the first.
+
 ## Build order and acceptance
 
 Run each check yourself and paste the real output in the commit message or a `CHECKS.md`. A check that could not run is a failure, not a pass.
@@ -80,6 +84,22 @@ Page obligations (block E):
 - An action line with the chips, then a gate banner: green "ACCEPTED" with the control delta and budget ratios, or red "REJECTED: <reason>". Rejected attempts stay visible below as a history.
 - Cards update in place when a condition's F1 changes; a card that flips to pass changes color at that moment, no animation beyond the color change.
 - Replay: `?replay=showcase` plays the recorded showcase `progress` events at 4x speed from `showcase/<scenario>/events.jsonl` so the landing page is never static. Record every `on_update` payload to that file during the showcase run.
+
+### Motion (added 14:03, author's request): the flow must be visible as it happens
+
+Motion is allowed and wanted when it shows the process. It is not allowed as decoration. Vanilla CSS transitions and keyframes plus a little JS; no libraries, no particles, no neon, no gradients. Build in this order, stop when time runs out:
+
+1. Pipeline schematic above the filmstrip: five boxes in a row, "Condition photo" → "FP32 reference" → "INT8 under test" → "Compare" → "Verdict", joined by lines. The photo currently being evaluated appears as a small thumbnail that slides from box to box (CSS transform, 300 ms per hop) as the loop reports it; the active box has a soft pulse (opacity 0.6–1.0, 1.2 s). During Diagnose the whole row dims and a sixth box "Gemini 4 Argon" lights with the live elapsed counter; during Repair the "INT8 under test" box shows the action chips and a thin indeterminate progress bar.
+2. Filmstrip tiles slide in from the right (translateX 24 px → 0, 250 ms) and their boxes draw on after the tile lands: SVG rectangles over the thumbnail with stroke-dashoffset animated from full length to 0 over 400 ms, FP32 green first, then INT8 orange. A missed object keeps its green box and flashes once (two 150 ms opacity dips).
+3. Stepper: a progress line fills left to right between completed stages; the active stage label counts elapsed seconds live; a completed stage snaps to its final duration.
+4. Numbers count up: baseline F1 → final F1 on cards and the Before → After strip animate the digits over 600 ms when they change; the card background cross-fades red → green over 400 ms at the moment a condition passes.
+5. Gate banner slides down (height 0 → auto, 300 ms) and holds; REJECTED banners stack below as history with no further motion.
+6. Diagnosis text appears line by line (each line fades in 120 ms apart); cited evidence images enlarge from their filmstrip tile (transform scale, 300 ms) into the diagnosis panel.
+Hero photo (checked 14:11): the COCO person filter pulled many outdoor sports photos into the pool; only 13 of the 40 split-B images contain indoor objects. Use `000000000139.jpg` (chair, potted plant, tv; the classic living room) as the crash-wall photo, with `000000004495.jpg` (chair, couch, tv) and `000000012576.jpg` (cup, tv, people) as alternates. Order the filmstrip so images with indoor objects come first. The README says the pool is COCO val2017 images containing the scenario classes, people included.
+
+7. Judge picks the condition: the Run live control is three large buttons, "Night", "Glare", "Rain", each showing that condition's thumbnail of the crash-wall photo. Pressing one starts `/run` with that condition and n_images 20; the pressed button stays highlighted for the whole run. No countdown, no confirmation dialog.
+
+Honesty rules for motion: nothing moves unless a real event arrived from `/state`; replay mode drives the same animations from `events.jsonl` with a visible "Replay of showcase run (4x)" label; durations above are caps, never fabricated waits.
 
 ## Module contracts (so parallel agents agree)
 
