@@ -9,6 +9,7 @@ pillow==12.3.0
 opencv-python-headless==5.0.0.93
 onnx==1.23.2
 onnxruntime==1.31.0
+sympy==1.14.0
 google-genai==2.31.0
 httpx==0.28.1
 pytest==9.1.1

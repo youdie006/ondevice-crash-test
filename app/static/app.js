@@ -1028,8 +1028,7 @@
       if (latestLog && latestLog.rationale) {
         lines.push(`Rationale: ${latestLog.rationale}`);
       }
-      const sig = lines.join("
-");
+      const sig = lines.join("\n");
       if (lines.length === 0) {
         diagBox.textContent = "Diagnosis text pending Argon response.";
         lastDiagnosisSignature = "";
