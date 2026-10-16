@@ -1,0 +1,237 @@
+{
+  "scenario": "robot_vacuum",
+  "rule": "Top 25 images from Split A by 0.5 * z(mean_luminance) + 0.5 * z(log1p(laplacian_variance))",
+  "split_source": "A",
+  "top_k": 25,
+  "selected_files": [
+    "000000005529.jpg",
+    "000000000785.jpg",
+    "000000007977.jpg",
+    "000000007278.jpg",
+    "000000007088.jpg",
+    "000000008690.jpg",
+    "000000001490.jpg",
+    "000000002532.jpg",
+    "000000012639.jpg",
+    "000000009448.jpg",
+    "000000001000.jpg",
+    "000000002261.jpg",
+    "000000007281.jpg",
+    "000000004795.jpg",
+    "000000002473.jpg",
+    "000000005060.jpg",
+    "000000007816.jpg",
+    "000000009772.jpg",
+    "000000013177.jpg",
+    "000000007386.jpg",
+    "000000009891.jpg",
+    "000000007574.jpg",
+    "000000012748.jpg",
+    "000000010707.jpg",
+    "000000001503.jpg"
+  ],
+  "selected_paths": [
+    "data/robot_vacuum/real/000000005529.jpg",
+    "data/robot_vacuum/real/000000000785.jpg",
+    "data/robot_vacuum/real/000000007977.jpg",
+    "data/robot_vacuum/real/000000007278.jpg",
+    "data/robot_vacuum/real/000000007088.jpg",
+    "data/robot_vacuum/real/000000008690.jpg",
+    "data/robot_vacuum/real/000000001490.jpg",
+    "data/robot_vacuum/real/000000002532.jpg",
+    "data/robot_vacuum/real/000000012639.jpg",
+    "data/robot_vacuum/real/000000009448.jpg",
+    "data/robot_vacuum/real/000000001000.jpg",
+    "data/robot_vacuum/real/000000002261.jpg",
+    "data/robot_vacuum/real/000000007281.jpg",
+    "data/robot_vacuum/real/000000004795.jpg",
+    "data/robot_vacuum/real/000000002473.jpg",
+    "data/robot_vacuum/real/000000005060.jpg",
+    "data/robot_vacuum/real/000000007816.jpg",
+    "data/robot_vacuum/real/000000009772.jpg",
+    "data/robot_vacuum/real/000000013177.jpg",
+    "data/robot_vacuum/real/000000007386.jpg",
+    "data/robot_vacuum/real/000000009891.jpg",
+    "data/robot_vacuum/real/000000007574.jpg",
+    "data/robot_vacuum/real/000000012748.jpg",
+    "data/robot_vacuum/real/000000010707.jpg",
+    "data/robot_vacuum/real/000000001503.jpg"
+  ],
+  "selected_details": [
+    {
+      "file": "000000005529.jpg",
+      "path": "data/robot_vacuum/real/000000005529.jpg",
+      "mean_luminance": 167.6246,
+      "laplacian_variance": 8754.9463,
+      "lab_score": 1.7716
+    },
+    {
+      "file": "000000000785.jpg",
+      "path": "data/robot_vacuum/real/000000000785.jpg",
+      "mean_luminance": 196.2083,
+      "laplacian_variance": 1594.284,
+      "lab_score": 1.2943
+    },
+    {
+      "file": "000000007977.jpg",
+      "path": "data/robot_vacuum/real/000000007977.jpg",
+      "mean_luminance": 148.6007,
+      "laplacian_variance": 5126.7668,
+      "lab_score": 1.1813
+    },
+    {
+      "file": "000000007278.jpg",
+      "path": "data/robot_vacuum/real/000000007278.jpg",
+      "mean_luminance": 131.6297,
+      "laplacian_variance": 6661.3659,
+      "lab_score": 1.057
+    },
+    {
+      "file": "000000007088.jpg",
+      "path": "data/robot_vacuum/real/000000007088.jpg",
+      "mean_luminance": 146.1809,
+      "laplacian_variance": 3870.5889,
+      "lab_score": 0.9904
+    },
+    {
+      "file": "000000008690.jpg",
+      "path": "data/robot_vacuum/real/000000008690.jpg",
+      "mean_luminance": 170.4491,
+      "laplacian_variance": 1891.7172,
+      "lab_score": 0.9824
+    },
+    {
+      "file": "000000001490.jpg",
+      "path": "data/robot_vacuum/real/000000001490.jpg",
+      "mean_luminance": 147.3592,
+      "laplacian_variance": 3457.1708,
+      "lab_score": 0.9475
+    },
+    {
+      "file": "000000002532.jpg",
+      "path": "data/robot_vacuum/real/000000002532.jpg",
+      "mean_luminance": 143.1001,
+      "laplacian_variance": 3771.6856,
+      "lab_score": 0.9279
+    },
+    {
+      "file": "000000012639.jpg",
+      "path": "data/robot_vacuum/real/000000012639.jpg",
+      "mean_luminance": 125.1766,
+      "laplacian_variance": 5545.6964,
+      "lab_score": 0.8559
+    },
+    {
+      "file": "000000009448.jpg",
+      "path": "data/robot_vacuum/real/000000009448.jpg",
+      "mean_luminance": 107.2691,
+      "laplacian_variance": 9178.9918,
+      "lab_score": 0.8485
+    },
+    {
+      "file": "000000001000.jpg",
+      "path": "data/robot_vacuum/real/000000001000.jpg",
+      "mean_luminance": 113.5746,
+      "laplacian_variance": 6314.612,
+      "lab_score": 0.7441
+    },
+    {
+      "file": "000000002261.jpg",
+      "path": "data/robot_vacuum/real/000000002261.jpg",
+      "mean_luminance": 153.9178,
+      "laplacian_variance": 1916.1757,
+      "lab_score": 0.7295
+    },
+    {
+      "file": "000000007281.jpg",
+      "path": "data/robot_vacuum/real/000000007281.jpg",
+      "mean_luminance": 153.1477,
+      "laplacian_variance": 1672.5022,
+      "lab_score": 0.6435
+    },
+    {
+      "file": "000000004795.jpg",
+      "path": "data/robot_vacuum/real/000000004795.jpg",
+      "mean_luminance": 153.1701,
+      "laplacian_variance": 1400.0198,
+      "lab_score": 0.5471
+    },
+    {
+      "file": "000000002473.jpg",
+      "path": "data/robot_vacuum/real/000000002473.jpg",
+      "mean_luminance": 116.9312,
+      "laplacian_variance": 2325.2912,
+      "lab_score": 0.2534
+    },
+    {
+      "file": "000000005060.jpg",
+      "path": "data/robot_vacuum/real/000000005060.jpg",
+      "mean_luminance": 109.1831,
+      "laplacian_variance": 2224.1015,
+      "lab_score": 0.1074
+    },
+    {
+      "file": "000000007816.jpg",
+      "path": "data/robot_vacuum/real/000000007816.jpg",
+      "mean_luminance": 126.6047,
+      "laplacian_variance": 1268.7338,
+      "lab_score": 0.076
+    },
+    {
+      "file": "000000009772.jpg",
+      "path": "data/robot_vacuum/real/000000009772.jpg",
+      "mean_luminance": 110.3887,
+      "laplacian_variance": 1570.2706,
+      "lab_score": -0.063
+    },
+    {
+      "file": "000000013177.jpg",
+      "path": "data/robot_vacuum/real/000000013177.jpg",
+      "mean_luminance": 104.5146,
+      "laplacian_variance": 1845.475,
+      "lab_score": -0.0675
+    },
+    {
+      "file": "000000007386.jpg",
+      "path": "data/robot_vacuum/real/000000007386.jpg",
+      "mean_luminance": 85.8468,
+      "laplacian_variance": 3156.6768,
+      "lab_score": -0.069
+    },
+    {
+      "file": "000000009891.jpg",
+      "path": "data/robot_vacuum/real/000000009891.jpg",
+      "mean_luminance": 107.4015,
+      "laplacian_variance": 1652.6076,
+      "lab_score": -0.0822
+    },
+    {
+      "file": "000000007574.jpg",
+      "path": "data/robot_vacuum/real/000000007574.jpg",
+      "mean_luminance": 109.0098,
+      "laplacian_variance": 1515.3642,
+      "lab_score": -0.104
+    },
+    {
+      "file": "000000012748.jpg",
+      "path": "data/robot_vacuum/real/000000012748.jpg",
+      "mean_luminance": 105.3763,
+      "laplacian_variance": 1626.1513,
+      "lab_score": -0.1228
+    },
+    {
+      "file": "000000010707.jpg",
+      "path": "data/robot_vacuum/real/000000010707.jpg",
+      "mean_luminance": 113.5567,
+      "laplacian_variance": 1281.8554,
+      "lab_score": -0.1236
+    },
+    {
+      "file": "000000001503.jpg",
+      "path": "data/robot_vacuum/real/000000001503.jpg",
+      "mean_luminance": 119.4935,
+      "laplacian_variance": 947.8667,
+      "lab_score": -0.1943
+    }
+  ]
+}

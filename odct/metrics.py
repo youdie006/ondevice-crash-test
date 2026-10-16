@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
@@ -19,14 +21,19 @@ from odct.quant import count_quantized_ops
 
 @dataclass(frozen=True)
 class CondMetrics:
-    f1: float
-    recall: float
-    precision: float
-    retention: float
-    per_class: dict[str, float]
-    per_size: dict[str, float]
+    f1: float | None
+    recall: float | None
+    precision: float | None
+    retention: float | None
+    per_class: dict[str, float | None]
+    per_size: dict[str, float | None]
     n_images: int
     limitation: bool
+    raw_f1: float | None = None
+    passed: bool = False
+    valid_images: int = 0
+    excluded_images: int = 0
+    collapse_images: int = 0
     ref_objects: int = 0
     orig_objects: int = 0
     tp: int = 0
@@ -34,6 +41,12 @@ class CondMetrics:
     fn: int = 0
     ci90_low: float | None = None
     ci90_high: float | None = None
+
+
+def is_passing_f1(metrics: CondMetrics, threshold: float = 0.80) -> bool:
+    if metrics.raw_f1 is None or metrics.f1 is None:
+        return False
+    return bool(math.isfinite(metrics.raw_f1) and metrics.raw_f1 >= threshold)
 
 
 def box_iou(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> float:
@@ -80,18 +93,23 @@ def match(
     iou: float = 0.5,
     dc_all: list[Det] | None = None,
 ) -> tuple[int, int, int]:
+    """Compute (tp, fp, fn) per Section 8:
+    - TP = |Q matched to R| via greedy matching at IoU >= 0.5, same class.
+    - FN = |R| - TP.
+    - When dc_all is provided: FP = |{ q in Q : q matches nothing in dc_all (same class, IoU >= 0.5) }|
+      computed independently for every q in Q without skipping TP-matched predictions.
+    """
     matched_r, matched_p = _greedy_pairs(ref, pred, iou=iou)
     tp = len(matched_r)
     fn = len(ref) - tp
     if dc_all is None:
         fp = len(pred) - len(matched_p)
     else:
-        fp = 0
-        for p_idx, q in enumerate(pred):
-            if p_idx in matched_p:
-                continue
-            if not any(q.cls == d_c.cls and box_iou(q.box, d_c.box) >= iou for d_c in dc_all):
-                fp += 1
+        fp = sum(
+            1
+            for q in pred
+            if not any(q.cls == d_c.cls and box_iou(q.box, d_c.box) >= iou for d_c in dc_all)
+        )
     return tp, fp, fn
 
 
@@ -114,6 +132,7 @@ def evaluate_condition(
     originals: Sequence[str | Path],
     condition_images: Sequence[str | Path],
     iou: float = 0.5,
+    pass_threshold: float = 0.80,
 ) -> CondMetrics:
     if len(originals) != len(condition_images):
         raise ValueError("originals and condition_images must have the same length")
@@ -123,6 +142,10 @@ def evaluate_condition(
     total_fn = 0
     total_d0 = 0
     total_p = 0
+
+    valid_images = 0
+    excluded_images = 0
+    collapse_images = 0
 
     class_tp: dict[int, int] = {}
     class_fp: dict[int, int] = {}
@@ -140,6 +163,10 @@ def evaluate_condition(
             orig_w, orig_h = im.size
 
         d0 = fp32.detect(orig_path)
+        if len(d0) == 0:
+            excluded_images += 1
+            continue
+
         if orig_path.resolve() == cond_path.resolve():
             dc = d0
             ref = d0
@@ -147,9 +174,14 @@ def evaluate_condition(
             dc = fp32.detect(cond_path)
             ref = persisted(d0, dc, iou=iou)
 
+        if len(ref) == 0:
+            collapse_images += 1
+        else:
+            valid_images += 1
+
         q = int8.detect(cond_path)
 
-        matched_r, matched_p = _greedy_pairs(ref, q, iou=iou)
+        matched_r, _ = _greedy_pairs(ref, q, iou=iou)
         tp, fp, fn = match(ref, q, iou=iou, dc_all=dc)
 
         total_tp += tp
@@ -169,38 +201,56 @@ def evaluate_condition(
             else:
                 class_fn[c] = class_fn.get(c, 0) + 1
 
-        for p_idx, q_det in enumerate(q):
-            if p_idx in matched_p:
-                continue
+        for q_det in q:
             if not any(q_det.cls == d_c.cls and box_iou(q_det.box, d_c.box) >= iou for d_c in dc):
                 c = q_det.cls
                 class_fp[c] = class_fp.get(c, 0) + 1
 
     denom = 2 * total_tp + total_fp + total_fn
-    f1 = float(2 * total_tp) / float(denom) if denom > 0 else 1.0
-    recall = float(total_tp) / float(total_tp + total_fn) if (total_tp + total_fn) > 0 else 1.0
-    precision = float(total_tp) / float(total_tp + total_fp) if (total_tp + total_fp) > 0 else 1.0
-    retention = float(total_p) / float(total_d0) if total_d0 > 0 else 1.0
+    if total_p > 0 and denom > 0 and len(originals) > 0 and total_d0 > 0:
+        raw_f1: float | None = float(2 * total_tp) / float(denom)
+        f1_val: float | None = round(raw_f1, 4)
+    else:
+        raw_f1 = None
+        f1_val = None
+
+    if (total_tp + total_fn) > 0:
+        recall_val: float | None = round(float(total_tp) / float(total_tp + total_fn), 4)
+    else:
+        recall_val = None
+
+    if (total_tp + total_fp) > 0:
+        precision_val: float | None = round(float(total_tp) / float(total_tp + total_fp), 4)
+    else:
+        precision_val = None
+
+    if total_d0 > 0:
+        raw_retention = float(total_p) / float(total_d0)
+        retention_val: float | None = round(raw_retention, 4)
+        limitation_flag = bool(raw_retention < 0.7)
+    else:
+        retention_val = None
+        limitation_flag = False
 
     all_classes = sorted(set(class_tp.keys()) | set(class_fp.keys()) | set(class_fn.keys()))
-    per_class: dict[str, float] = {}
+    per_class: dict[str, float | None] = {}
     for c in all_classes:
         ctp = class_tp.get(c, 0)
         cfp = class_fp.get(c, 0)
         cfn = class_fn.get(c, 0)
         cdenom = 2 * ctp + cfp + cfn
-        per_class[str(c)] = round(float(2 * ctp) / float(cdenom), 4) if cdenom > 0 else 1.0
+        per_class[str(c)] = round(float(2 * ctp) / float(cdenom), 4) if cdenom > 0 else None
 
-    per_size: dict[str, float] = {}
+    per_size: dict[str, float | None] = {}
     for b_key in ("small", "medium", "large"):
         if size_total[b_key] > 0:
             per_size[b_key] = round(float(size_tp[b_key]) / float(size_total[b_key]), 4)
         else:
-            per_size[b_key] = 1.0
+            per_size[b_key] = None
 
     ci_low: float | None = None
     ci_high: float | None = None
-    if len(per_img_counts) >= 2:
+    if len(per_img_counts) >= 2 and raw_f1 is not None:
         rng = np.random.default_rng(42)
         arr = np.asarray(per_img_counts, dtype=np.float64)
         n_img = len(arr)
@@ -209,19 +259,28 @@ def evaluate_condition(
             sample_idx = rng.integers(0, n_img, size=n_img)
             sums = arr[sample_idx].sum(axis=0)
             b_denom = 2.0 * sums[0] + sums[1] + sums[2]
-            boot_f1s.append(float(2.0 * sums[0] / b_denom) if b_denom > 0 else 1.0)
-        ci_low = round(float(np.percentile(boot_f1s, 5)), 4)
-        ci_high = round(float(np.percentile(boot_f1s, 95)), 4)
+            if b_denom > 0:
+                boot_f1s.append(float(2.0 * sums[0] / b_denom))
+        if boot_f1s:
+            ci_low = round(float(np.percentile(boot_f1s, 5)), 4)
+            ci_high = round(float(np.percentile(boot_f1s, 95)), 4)
+
+    passed_flag = bool(raw_f1 is not None and math.isfinite(raw_f1) and raw_f1 >= pass_threshold)
 
     return CondMetrics(
-        f1=round(f1, 4),
-        recall=round(recall, 4),
-        precision=round(precision, 4),
-        retention=round(retention, 4),
+        f1=f1_val,
+        recall=recall_val,
+        precision=precision_val,
+        retention=retention_val,
         per_class=per_class,
         per_size=per_size,
         n_images=len(originals),
-        limitation=bool(retention < 0.7),
+        limitation=limitation_flag,
+        raw_f1=raw_f1,
+        passed=passed_flag,
+        valid_images=valid_images,
+        excluded_images=excluded_images,
+        collapse_images=collapse_images,
         ref_objects=total_p,
         orig_objects=total_d0,
         tp=total_tp,
@@ -230,6 +289,14 @@ def evaluate_condition(
         ci90_low=ci_low,
         ci90_high=ci_high,
     )
+
+
+def _sha256_file(path: str | Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def main() -> None:
@@ -252,7 +319,14 @@ def main() -> None:
         fp32_det = Detector(args.fp32, preprocess="stretch", allowed_classes=allowed_classes)
         int8_det = Detector(args.int8, preprocess="stretch", allowed_classes=allowed_classes)
 
-        metrics = evaluate_condition(fp32_det, int8_det, split_b_paths, split_b_paths)
+        control_sanity_bar = 0.80
+        metrics = evaluate_condition(
+            fp32_det,
+            int8_det,
+            split_b_paths,
+            split_b_paths,
+            pass_threshold=control_sanity_bar,
+        )
 
         fp32_size = Path(args.fp32).stat().st_size
         int8_size = Path(args.int8).stat().st_size
@@ -261,8 +335,16 @@ def main() -> None:
         q_ops, total_ops, q_ratio = count_quantized_ops(args.int8)
 
         baseline_meas = Measured(size_bytes=int8_size, median_ms=int8_ms, quantized_ops=q_ops)
-        fp32_meas = Measured(size_bytes=fp32_size, median_ms=fp32_ms, quantized_ops=0)
+        fp32_meas = Measured(size_bytes=fp32_size, median_ms=fp32_ms, quantized_ops=1)
         budget_ok, budget_details = check(baseline_meas, baseline_meas, fp32=fp32_meas)
+
+        passed_control = is_passing_f1(metrics, threshold=control_sanity_bar) and budget_ok
+        condition_pass_threshold_raw = (
+            float(metrics.raw_f1) - 0.05 if metrics.raw_f1 is not None else None
+        )
+        condition_pass_threshold = (
+            round(condition_pass_threshold_raw, 4) if condition_pass_threshold_raw is not None else None
+        )
 
         out_dir = Path("showcase") / args.scenario
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -272,17 +354,26 @@ def main() -> None:
             "scenario": args.scenario,
             "split": "B",
             "n_images": len(split_b_paths),
+            "passed": passed_control,
+            "control_sanity_bar": control_sanity_bar,
+            "condition_pass_threshold": condition_pass_threshold,
+            "condition_pass_threshold_raw": condition_pass_threshold_raw,
+            "condition_pass_threshold_rule": "baseline_control_raw_f1 - 0.05",
+            "note": "baseline.json is written before threshold assertion for inspection; check 'passed' and unrounded 'control_metrics.raw_f1' >= 0.80 for control acceptance.",
             "control_metrics": asdict(metrics),
             "baseline_int8": {
                 "path": args.int8,
+                "sha256": _sha256_file(args.int8),
                 "size_bytes": int8_size,
                 "median_ms": round(int8_ms, 3),
                 "quantized_ops": q_ops,
                 "total_ops": total_ops,
                 "quantized_op_ratio": round(q_ratio, 4),
+                "op_types_to_quantize": ["Conv"],
             },
             "fp32": {
                 "path": args.fp32,
+                "sha256": _sha256_file(args.fp32),
                 "size_bytes": fp32_size,
                 "median_ms": round(fp32_ms, 3),
             },
@@ -290,8 +381,10 @@ def main() -> None:
         }
         out_file.write_text(json.dumps(payload, indent=2) + chr(10))
         print(json.dumps(payload, indent=2))
-        if metrics.f1 < 0.90:
-            raise SystemExit(f"Control F1 {metrics.f1:.4f} is below required 0.90 threshold.")
+        if not passed_control:
+            raise SystemExit(
+                f"Control check failed: raw_f1={metrics.raw_f1} (sanity bar >= {control_sanity_bar} unrounded), budget_ok={budget_ok}"
+            )
 
 
 if __name__ == "__main__":

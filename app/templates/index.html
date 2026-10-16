@@ -46,15 +46,15 @@
     </section>
 
     <section class="strip-panel">
-      <h2>Before &rarr; After Summary</h2>
+      <h2>Before → After Summary</h2>
       {% if state.baseline_control != 'not yet run' %}
       <div class="metrics-grid">
         <div class="metric-box">
           <div class="metric-label">Split B Control F1 (Unedited)</div>
           <div class="metric-value">
-            {{ state.baseline_control.f1 }}
+            {{ state.baseline_control.f1 if state.baseline_control.f1 is not none else 'N/A' }}
             {% if state.final_control != 'not yet run' %}
-              &rarr; {{ state.final_control.f1 }}
+              → {{ state.final_control.f1 if state.final_control.f1 is not none else 'N/A' }}
             {% endif %}
           </div>
           <div class="metric-note">

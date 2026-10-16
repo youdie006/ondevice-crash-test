@@ -1,0 +1,75 @@
+{
+  "scenario": "robot_vacuum",
+  "split": "B",
+  "n_images": 40,
+  "passed": true,
+  "control_sanity_bar": 0.8,
+  "condition_pass_threshold": 0.8337,
+  "condition_pass_threshold_raw": 0.8337209302325581,
+  "condition_pass_threshold_rule": "baseline_control_raw_f1 - 0.05",
+  "note": "baseline.json is written before threshold assertion for inspection; check 'passed' and unrounded 'control_metrics.raw_f1' >= 0.80 for control acceptance.",
+  "control_metrics": {
+    "f1": 0.8837,
+    "recall": 0.8444,
+    "precision": 0.9268,
+    "retention": 1.0,
+    "per_class": {
+      "0": 0.892,
+      "15": 1.0,
+      "41": 0.8,
+      "56": 0.8333,
+      "57": 1.0,
+      "58": 0.6667,
+      "62": 0.8571
+    },
+    "per_size": {
+      "small": 0.5385,
+      "medium": 0.8507,
+      "large": 0.9091
+    },
+    "n_images": 40,
+    "limitation": false,
+    "raw_f1": 0.8837209302325582,
+    "passed": true,
+    "valid_images": 40,
+    "excluded_images": 0,
+    "collapse_images": 0,
+    "ref_objects": 135,
+    "orig_objects": 135,
+    "tp": 114,
+    "fp": 9,
+    "fn": 21,
+    "ci90_low": 0.8453,
+    "ci90_high": 0.9207
+  },
+  "baseline_int8": {
+    "path": "models/baseline_int8.onnx",
+    "sha256": "0f927c68172b5d93f3e92f1abd6bbdae671b2700365d89943cb1eccda53926de",
+    "size_bytes": 2788749,
+    "median_ms": 7.801,
+    "quantized_ops": 102,
+    "total_ops": 106,
+    "quantized_op_ratio": 0.9623,
+    "op_types_to_quantize": [
+      "Conv"
+    ]
+  },
+  "fp32": {
+    "path": "models/fp32.onnx",
+    "sha256": "77c7293669cd3bc39fb03a028720edd453d2ed133074a5af1b90fd679b735cf1",
+    "size_bytes": 9804172,
+    "median_ms": 5.722
+  },
+  "budget_reference": {
+    "ok": true,
+    "size_ratio_vs_baseline": 1.0,
+    "ms_ratio_vs_baseline": 1.0,
+    "ops_ratio_vs_baseline": 1.0,
+    "size_ok": true,
+    "ms_ok": true,
+    "ops_ok": true,
+    "reasons": [],
+    "size_ratio_vs_fp32": 0.2844,
+    "ms_ratio_vs_fp32": 1.3634
+  }
+}

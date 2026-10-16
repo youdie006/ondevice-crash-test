@@ -57,21 +57,22 @@ class ImageListCalibrationReader(CalibrationDataReader):
 
 
 def count_quantized_ops(onnx_path: str | Path) -> tuple[int, int, float]:
+    """Count target compute ops (Conv, Gemm, MatMul) where BOTH activation (input[0]) and weight (input[1]) come from DequantizeLinear."""
     model = onnx.load(str(onnx_path))
     target_ops = {"Conv", "Gemm", "MatMul"}
     nodes = list(model.graph.node)
     total_target = 0
     quantized_target = 0
-    qdq_outputs = {
+    dq_outputs = {
         out
         for node in nodes
-        if node.op_type in ("DequantizeLinear", "QuantizeLinear")
+        if node.op_type == "DequantizeLinear"
         for out in node.output
     }
     for node in nodes:
         if node.op_type in target_ops:
             total_target += 1
-            if any(inp in qdq_outputs for inp in node.input):
+            if len(node.input) >= 2 and node.input[0] in dq_outputs and node.input[1] in dq_outputs:
                 quantized_target += 1
     ratio = float(quantized_target) / float(total_target) if total_target > 0 else 0.0
     return quantized_target, total_target, ratio
@@ -86,7 +87,7 @@ def get_preset_exclusion_nodes(onnx_path: str | Path, preset: str) -> list[str]:
         head_nodes = [
             n.name
             for n in model.graph.node
-            if n.name and ("model.23" in n.name or "model.22" in n.name or "cv2" in n.name or "cv3" in n.name)
+            if n.op_type == "Conv" and n.name and "/model.23/" in n.name and n.name.endswith(".2/Conv")
         ]
         return head_nodes if head_nodes else conv_nodes[-6:]
     raise ValueError(f"Unknown exclusion preset: {preset}")
@@ -137,6 +138,7 @@ def quantize(
         str(out_p),
         calibration_data_reader=reader,
         quant_format=QuantFormat.QDQ,
+        op_types_to_quantize=["Conv"],
         activation_type=QuantType.QUInt8,
         weight_type=QuantType.QInt8,
         per_channel=bool(per_channel),

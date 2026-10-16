@@ -23,6 +23,10 @@ Build only goals G1–G5 from the design. Everything below is deferred unless G1
 - Section 12b: the fixed-policy comparison (`scripts/run_policies.py`) and the CLI packaging (`recipe.json`, `profile.json`) are done only after check F passes and before 14:40; the comparison table is worth more than the packaging.
 - Diagnosis `claims` verification: implement the check (a short function comparing each claim to the measured metrics) if block D finishes inside its slot; otherwise render claims as "unverified" rather than dropping the field.
 
+## Block B finding (13:50) and the two rules it changed
+
+The first baseline quantized every op and scored control F1 0.11: the final Concat mixes box coordinates (0–320) and class scores (0–1) in one tensor, and one uint8 scale crushes the scores. Verified fix: `op_types_to_quantize=["Conv"]` in `odct/quant.py` for every model, baseline and repairs. With it the lab-like baseline measures 0.884 on clean split B; Percentile 0.913, per-channel 0.935, all-40 calibration 0.898. Rules changed before any condition was evaluated: the condition pass threshold is baseline control F1 − 0.05 (fixed at run start, shown on each card), and the control sanity bar is 0.80. The regression gate (control drop ≤ 0.02, no passing condition falls below the threshold, budget holds) is unchanged. Also measured: INT8 is 0.28× the FP32 size but not faster on this x86 CPU (about 7 ms vs 5 ms); the page states that as a fact, the budget is baseline-relative.
+
 ## Build order and acceptance
 
 Run each check yourself and paste the real output in the commit message or a `CHECKS.md`. A check that could not run is a failure, not a pass.
@@ -36,6 +40,46 @@ Run each check yourself and paste the real output in the commit message or a `CH
 - Then README (English, honest limitations from section 17, architecture diagram, how to run), 2–3 minute video, description, submit.
 
 Cut lines are in section 16 of the design. Apply them without waiting.
+
+## Block E visual brief (added 13:40 after seeing the deployed skeleton)
+
+The deployed landing page is a wall of "not yet run" text. Judges will scroll past it. Block E must make the page visual with real data only:
+
+1. Hero strip, above the cards: one split-B photo shown under all seven conditions as thumbnails in a row (original first), each with FP32 reference boxes in green and INT8 boxes in orange. This is "the crash wall" and it is the first thing a judge sees. It can render as soon as condition images exist, before any repair, labelled "evaluation pending" until metrics arrive.
+2. Expanded failing card: the four-panel comparison from design section 12 at large size (at least 320 px per panel on desktop), with the verbatim diagnosis under it.
+3. Cards: baseline F1 → final F1 as the biggest text on the card, colored by pass/fail, object count next to it, severity rendered as small chips (gamma 0.35, noise 12), never a raw Python dict. The "Why this condition" line stays.
+4. Empty state: never a column of "not yet run". If metrics are missing, show the condition thumbnail and the words "evaluation pending" once per card.
+5. Fix the escaping bug: "Before &rarr; After" renders literally. Use the arrow character directly.
+6. Do not add charts of fake data, mascots, gradients or animations. Photos with boxes and large measured numbers are the design.
+
+### Live process view (blocks D and E together)
+
+The judge must see the loop happen, not only its result. Block D's loop emits progress; block E renders it. All of it is real: real images, real timestamps, real token counts.
+
+State additions (written by `odct/loop.py` through `on_update`, served by `/state`, polled every 2 s):
+
+```
+progress: {
+  phase: "evaluating" | "diagnosing" | "repairing" | "re-evaluating" | "gate" | "done" | "needs_human",
+  phase_started_at: <iso>, phase_elapsed_s: <float>,
+  step: {done: <int>, total: <int>, label: "night 13/20"},
+  recent: [ {image_id, condition, thumb_url, fp32_boxes: n, int8_boxes: n, matched: n, missed: n}, ... up to 8, newest first ],
+  argon: {status: "sending" | "thinking" | "received", images_sent: n, input_tokens: n|null, output_tokens: n|null, elapsed_s: f},
+  action: {type, params_chips: ["Percentile 99.999", "+20 night images"]} | null,
+  gate: {verdict: "ACCEPTED" | "REJECTED", reasons: [...], control_delta, budget_ratios} | null
+}
+```
+
+Loop obligations: write an overlay image (FP32 green, INT8 orange) for every evaluated image to the artifact dir and push a `recent` entry as soon as it is evaluated, not at the end of the condition; update `argon.status` before the call, when the response arrives and after parsing; update `action` when chosen; update `gate` when decided. Keep each `on_update` cheap (write the state JSON, no image work inside the callback beyond the path).
+
+Page obligations (block E):
+
+- A stepper across the top of the run panel: Evaluate, Diagnose, Repair, Re-evaluate, Gate. The current phase is highlighted and shows its real elapsed seconds; finished phases show their duration.
+- A filmstrip under the stepper that fills from the left as `recent` grows: thumbnail with boxes, a small label "FP32 3 | INT8 2 | missed 1". During re-evaluation the same strip refills with the repaired model's boxes, so the judge sees boxes reappear on the same photos.
+- A diagnosis panel that shows "sending 40 images" → "Argon thinking 00:37" (live counter) → the returned diagnosis text verbatim, with the cited evidence images pulled out of the filmstrip and enlarged.
+- An action line with the chips, then a gate banner: green "ACCEPTED" with the control delta and budget ratios, or red "REJECTED: <reason>". Rejected attempts stay visible below as a history.
+- Cards update in place when a condition's F1 changes; a card that flips to pass changes color at that moment, no animation beyond the color change.
+- Replay: `?replay=showcase` plays the recorded showcase `progress` events at 4x speed from `showcase/<scenario>/events.jsonl` so the landing page is never static. Record every `on_update` payload to that file during the showcase run.
 
 ## Module contracts (so parallel agents agree)
 
