@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>On-Device Crash Test</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top-header">
+    <div class="container">
+      <h1>On-Device Crash Test</h1>
+      <p class="subtitle">Crash-test your on-device AI before your customers do.</p>
+      <p class="lead-problem">
+        <strong>Problem:</strong> The compressed INT8 detector passed lab validation on bright, static photos and fails silently under couches at night, in window glare, or with steam on the lens.
+      </p>
+      <p class="lead-repair">
+        <strong>What a repair is:</strong> A re-quantization recipe (calibration set, calibration method, per-channel granularity, node exclusions) verified by a zero-regression gate under a hard compression budget. No training, no labels.
+      </p>
+      <p class="calib-rule">
+        <strong>Baseline recipe:</strong> Quantized the way teams do: calibrated on the 25 brightest, sharpest lab-like images of Split A (MinMax, per-tensor, stretch preprocessing, no exclusions). Every number reported below is measured on held-out Split B (40 images).
+      </p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="scenario-bar">
+      <div class="tabs">
+        <a href="/?scenario=robot_vacuum" class="tab {% if scenario.id == 'robot_vacuum' %}active{% endif %}">
+          Scenario 1: Robot Vacuum Front Camera
+        </a>
+        {% if fridge_available %}
+        <a href="/?scenario=fridge_interior" class="tab {% if scenario.id == 'fridge_interior' %}active{% endif %}">
+          Scenario 2: Refrigerator Interior
+        </a>
+        {% else %}
+        <span class="tab disabled" title="Second scenario status: {{ fridge_status }}">
+          Scenario 2: Refrigerator Interior ({{ fridge_status }})
+        </span>
+        {% endif %}
+      </div>
+      <div class="actions">
+        <button id="run-live-btn" class="btn-primary" type="button">Run live (about 2 min)</button>
+        <span id="run-status-badge" class="badge">Phase: {{ state.phase }}</span>
+      </div>
+    </section>
+
+    <section class="strip-panel">
+      <h2>Before &rarr; After Summary</h2>
+      {% if state.baseline_control != 'not yet run' %}
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <div class="metric-label">Split B Control F1 (Unedited)</div>
+          <div class="metric-value">
+            {{ state.baseline_control.f1 }}
+            {% if state.final_control != 'not yet run' %}
+              &rarr; {{ state.final_control.f1 }}
+            {% endif %}
+          </div>
+          <div class="metric-note">
+            Reference objects |R|: {{ state.baseline_control.ref_objects }} ({{ state.n_images }} images)
+          </div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Baseline INT8 Size / Latency</div>
+          <div class="metric-value">
+            {{ (state.baseline_int8.size_bytes / 1048576) | round(2) }} MB / {{ state.baseline_int8.median_ms }} ms
+          </div>
+          <div class="metric-note">
+            Quantized ops: {{ state.baseline_int8.quantized_ops }} / {{ state.baseline_int8.total_ops }}
+            ({{ (state.baseline_int8.quantized_op_ratio * 100) | round(1) }}%)
+          </div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">FP32 Parent Size / Latency</div>
+          <div class="metric-value">
+            {{ (state.fp32.size_bytes / 1048576) | round(2) }} MB / {{ state.fp32.median_ms }} ms
+          </div>
+          <div class="metric-note">
+            INT8 vs FP32 ratios: {{ state.budget_reference.size_ratio_vs_fp32 }}x size, {{ state.budget_reference.ms_ratio_vs_fp32 }}x latency
+          </div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Condition Matrix Status</div>
+          <div class="metric-value">
+            {% if state.conditions %}
+              Measured ({{ state.conditions | length }} conditions)
+            {% else %}
+              not yet run
+            {% endif %}
+          </div>
+          <div class="metric-note">Pass threshold: F1 &ge; 0.90</div>
+        </div>
+      </div>
+      {% else %}
+      <p class="empty-notice">Baseline control metrics: <strong>not yet run</strong></p>
+      {% endif %}
+    </section>
+
+    <section class="conditions-section">
+      <h2>Crash-Test Conditions ({{ scenario.name }})</h2>
+      <p class="section-desc">{{ scenario.description }}</p>
+      <div class="cards-grid">
+        {% for cond in scenario.conditions %}
+        {% set cstate = state.conditions.get(cond.id) if state.conditions else None %}
+        <div class="cond-card">
+          <div class="cond-header">
+            <h3>{{ cond.name }} (<code>{{ cond.id }}</code>)</h3>
+            {% if cstate %}
+              <span class="badge">{{ cstate.status }}</span>
+            {% else %}
+              <span class="badge">not yet run</span>
+            {% endif %}
+          </div>
+          <p class="cond-reason"><strong>Why this condition:</strong> {{ cond.reason }}</p>
+          <p class="cond-meta">
+            Generator: <code>{{ cond.generator }}</code> | Fallback: <code>{{ cond.fallback }}</code> |
+            Fixed severity: <code>{{ cond.severity }}</code>
+          </p>
+          {% if cstate %}
+          <p class="cond-f1">
+            Baseline F1: <strong>{{ cstate.baseline_f1 }}</strong> &rarr;
+            Final F1: <strong>{{ cstate.final_f1 }}</strong>
+            (|R| = {{ cstate.ref_objects }})
+          </p>
+          {% else %}
+          <p class="cond-f1">Split B condition evaluation: <strong>not yet run</strong></p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="argon-log-section">
+      <h2>Gemini 4 Argon Call Log (Interactions API)</h2>
+      {% if state.argon_logs %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Iter</th>
+            <th>Interaction ID</th>
+            <th>Thinking</th>
+            <th>Input Tokens</th>
+            <th>Output Tokens</th>
+            <th>Latency (s)</th>
+            <th>Action</th>
+            <th>Gate Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in state.argon_logs %}
+          <tr>
+            <td>{{ log.iteration }}</td>
+            <td><code>{{ log.interaction_id }}</code></td>
+            <td>{{ log.thinking_level }}</td>
+            <td>{{ log.usage.total_input_tokens }}</td>
+            <td>{{ log.usage.total_output_tokens }}</td>
+            <td>{{ log.latency_s }}</td>
+            <td><code>{{ log.action.type }}</code></td>
+            <td><strong>{{ log.gate_verdict }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty-notice">Argon diagnosis and repair loop: <strong>not yet run</strong></p>
+      {% endif %}
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

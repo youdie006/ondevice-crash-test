@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.DS_Store
+.env
+*.pt
+*.zip
+models/*_pre.onnx
+models/candidates/
+data/*/labels/
+/tmp/

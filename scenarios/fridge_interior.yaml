@@ -1,0 +1,84 @@
+id: fridge_interior
+name: Refrigerator Interior Camera
+description: >
+  A camera inside a refrigerator door must recognize food items for inventory;
+  it faces condensation when the door opens in summer, frost, glare from the interior
+  LED on glossy packaging, a blue color cast, dim light when the bulb fails,
+  and items stacked in front of each other.
+status: not yet run
+classes:
+  bottle: 39
+  cup: 41
+  bowl: 45
+  banana: 46
+  apple: 47
+  sandwich: 48
+  orange: 49
+  broccoli: 50
+  carrot: 51
+  cake: 55
+calibration_rule: >
+  Quantized the way teams do: MinMax, per-tensor, stretch preprocessing, no node exclusions,
+  calibrated on the 25 brightest and sharpest images of split A.
+conditions:
+  - id: condensation
+    name: Condensation on lens
+    generator: nano_banana
+    prompt: "Lens covered in fine condensation droplets after the door opened on a humid day; keep every item in place."
+    fallback: classical_rain
+    severity:
+      droplet_count: 32
+      blur_sigma: 2.5
+    seed: 201
+    reason: "Humid kitchen air condenses immediately on the cold door lens when opened."
+  - id: frost
+    name: Frost
+    generator: nano_banana
+    prompt: "Thin frost on packaging and shelf edges; keep every item in place."
+    fallback: classical_fog
+    severity:
+      alpha_white: 0.35
+      blur_sigma: 1.5
+    seed: 202
+    reason: "Door seal leaks cause frost crystals on the lens and nearby packaging."
+  - id: led_glare
+    name: LED glare on packaging
+    generator: nano_banana
+    prompt: "Harsh interior LED reflecting off glossy packaging; keep every item in place."
+    fallback: classical_glare
+    severity:
+      highlight_strength: 0.60
+      contrast_scale: 0.65
+    seed: 203
+    reason: "Point-source LED strips reflect strongly off plastic wrap and glass jars."
+  - id: color_cast
+    name: Blue LED color cast
+    generator: classical_color_cast
+    prompt: null
+    fallback: classical_color_cast
+    severity:
+      blue_gain: 1.35
+      red_gain: 0.75
+    seed: 204
+    reason: "Cool-white interior LEDs shift chromaticity when auto-white-balance locks improperly."
+  - id: dim
+    name: Bulb failure
+    generator: classical_night
+    prompt: null
+    fallback: classical_night
+    severity:
+      gamma: 0.40
+      noise_sigma: 8.0
+    seed: 205
+    reason: "Partially blocked or failing interior light leaves deep shelf shadows."
+  - id: stacking
+    name: Items stacked in front
+    generator: classical_occlusion
+    prompt: null
+    fallback: classical_occlusion
+    severity:
+      num_rectangles: 2
+      area_fraction_min: 0.15
+      area_fraction_max: 0.25
+    seed: 206
+    reason: "Tall bottles and cartons on the front shelf partially occlude items behind them."

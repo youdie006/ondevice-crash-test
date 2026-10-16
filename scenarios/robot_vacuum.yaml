@@ -1,0 +1,93 @@
+id: robot_vacuum
+name: Robot Vacuum Front Camera
+description: >
+  A robot vacuum front camera mounted 8 cm above the floor must detect people, pets,
+  and household obstacles while driving under couches in darkness, past sunlit windows
+  with strong backlight glare, after mopping when steam or droplets coat the lens,
+  and while rotating or moving rapidly across the room.
+status: active
+classes:
+  person: 0
+  cat: 15
+  dog: 16
+  bottle: 39
+  cup: 41
+  chair: 56
+  couch: 57
+  potted plant: 58
+  tv: 62
+calibration_rule: >
+  Quantized the way teams do: MinMax, per-tensor, stretch preprocessing, no node exclusions,
+  calibrated on the 25 brightest and sharpest images of split A (0.5 * z(mean_luminance) + 0.5 * z(log1p(laplacian_variance))).
+conditions:
+  - id: night
+    name: Night / low light
+    generator: nano_banana
+    prompt: "The same room at night lit by one dim lamp. Keep every object exactly where it is; change only lighting."
+    fallback: classical_night
+    severity:
+      gamma: 0.35
+      noise_sigma: 12.0
+    seed: 101
+    reason: "Camera is 8 cm above the floor, so under-furniture darkness and unlit rooms at night come first."
+  - id: glare
+    name: Window backlight
+    generator: nano_banana
+    prompt: "Strong sunlight from a window behind the objects with lens flare. Keep every object in place."
+    fallback: classical_glare
+    severity:
+      highlight_strength: 0.65
+      contrast_scale: 0.60
+    seed: 102
+    reason: "Floor-level camera faces low-angle sunlight reflecting off hardwood floors and windows."
+  - id: rain
+    name: Rain / droplets on lens
+    generator: nano_banana
+    prompt: "Water droplets on the camera lens. Keep every object in place."
+    fallback: classical_rain
+    severity:
+      droplet_count: 28
+      blur_sigma: 3.5
+    seed: 103
+    reason: "Wet mopping pads and pet water bowls splash droplets onto the low-mounted front lens."
+  - id: fog
+    name: Fog / steam on lens
+    generator: nano_banana
+    prompt: "Lens fogged by steam. Keep every object in place."
+    fallback: classical_fog
+    severity:
+      alpha_white: 0.45
+      blur_sigma: 2.5
+    seed: 104
+    reason: "Hot-water mop docks and bathroom thresholds fog the cold plastic lens cover."
+  - id: occlusion
+    name: Partial occlusion
+    generator: classical_occlusion
+    prompt: null
+    fallback: classical_occlusion
+    severity:
+      num_rectangles: 2
+      area_fraction_min: 0.15
+      area_fraction_max: 0.25
+    seed: 105
+    reason: "Chair legs, cables, and bumper dust partially block the camera field of view."
+  - id: blur
+    name: Motion blur
+    generator: classical_blur
+    prompt: null
+    fallback: classical_blur
+    severity:
+      kernel_size: 15
+    seed: 106
+    reason: "Fast yaw rotations and carpet transitions induce horizontal motion blur at low shutter speeds."
+  - id: smudge
+    name: Lens smudge
+    generator: classical_smudge
+    prompt: null
+    fallback: classical_smudge
+    severity:
+      num_blobs: 3
+      blob_sigma: 25.0
+      haze_alpha: 0.20
+    seed: 107
+    reason: "Pet noses and user fingers leave localized grease smudges on the front bumper window."

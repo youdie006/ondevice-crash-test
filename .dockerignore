@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.DS_Store
+.env
+*.pt
+*.zip
+models/*_pre.onnx
+models/candidates
+data/*/labels
+tests
+docs
