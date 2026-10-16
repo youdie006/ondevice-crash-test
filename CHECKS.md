@@ -209,3 +209,44 @@ BLOCK_B_EXIT_CODE=0
 - **Block E (Web live process view & redeploy):** `NOT RUN` (deferred per instructions).
 - **Block F (Full showcase run on Cloud Run):** `NOT RUN` (deferred per instructions).
 - **Block G / S1 (Second scenario `fridge_interior`):** `NOT RUN` (deferred per instructions).
+
+
+## Independent checkpoint: classical condition matrix
+
+Observed 2026-10-16 14:23 KST. This is the deterministic classical checkpoint, before any subsequent bounded Nano Banana attempt. Fourteen files left by an interrupted generation attempt were restored with the original seed and severity; all fourteen SHA256 values were independently checked against the deterministic reference. No severity, split membership, baseline model, or pass threshold changed.
+
+Command:
+```sh
+.venv/bin/python scripts/gen_conditions.py --scenario robot_vacuum --evaluate-only
+```
+Measured fields from the real output (exit 0; compacted for this checkpoint):
+```text
+Scenario: robot_vacuum | Split: B (n=40)
+Control raw F1: 0.8837209302325582
+Condition cutoff: 0.8337209302325581
+Condition    F1      Recall  Precision  Ref objects  Original objects  Retention
+night        0.9057  0.9114  0.9000     79           135               0.5852
+glare        0.8962  0.8407  0.9596     113          135               0.8370
+rain         0.9107  0.9027  0.9189     113          135               0.8370
+fog          0.8026  0.6932  0.9531     88           135               0.6519
+occlusion    0.9333  0.9333  0.9333     90           135               0.6667
+blur         0.9136  0.8506  0.9867     87           135               0.6444
+smudge       0.8909  0.8376  0.9515     117          135               0.8667
+```
+
+Known pending correction at this checkpoint: the CLI printed `MODEL_LIMITATION` for fog. Under the 14:08 measurement amendment, fog is a compression FAIL, with a separate informational model-limitation tag. Its numeric `passed` field is false. This checkpoint does not claim that Nano Banana generation, the live repair loop, or deployed UI acceptance has passed.
+
+Additional independent checks:
+```text
+.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_core.py
+5 passed in 0.31s
+
+collapse metric: raw_f1=1.0, retention=0.5, collapse_images=1
+PASS: collapsed reference images do not add compression false positives.
+WARN: only one of two synthetic images emitted progress; excluded-image progress still pending.
+
+detect_head preset: highest model index=23, selected indices=[23], nodes=24
+PASS: only the highest model.N is selected.
+
+Independent restored-image SHA verification: 14 / 14 PASS
+```
